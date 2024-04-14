@@ -1,7 +1,7 @@
 dataset: isic
 arch: resnet50
 train_type: supervised #which train type we will perform: SSL or supervised
-weight_type: dermnet_bt_pretrained 
+weight_type: isicufesdermnet_bt_pretrained 
 learn_type: semi_supervised  #or standard semi_supervised, linear_evaluation
 size: 256 #size of the image
 n_in: 3
@@ -15,4 +15,4 @@ pct_dataset_train: 1.0 #set to 0.5,0.25 as well
 pct_dataset_test: 1.0  #generally this is 1.0 outside of testing code
 epochs: 40  # epochs to train BT variant
 num_runs: 35 #Number of runs to perform
-load_pretrained_path: /content/drive/MyDrive/Experiments/barlow_twins/SSL/dermnet/resnet50/970b7b4b/trained_encoder_epoch_499.pth 
+load_pretrained_path: /content/drive/MyDrive/Experiments/barlow_twins/SSL/isicufesdermnet/resnet50/2aaf3e6e/trained_encoder_epoch_999.pth
