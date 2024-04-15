@@ -99,7 +99,7 @@ def format_classification_report(data_dict):
 
     non_label_keys = ["accuracy", "macro avg", "weighted avg"]
     y_type = "binary"
-    digits = 2
+    digits = 5
 
     target_names = [
         "%s" % key for key in data_dict.keys() if key not in non_label_keys
@@ -127,7 +127,8 @@ def format_classification_report(data_dict):
     head_fmt = "{:>{width}s} " + " {:>9}" * len(headers)
     report = head_fmt.format("", *headers, width=width)
     report += "\n\n"
-    row_fmt = "{:>{width}s} " + " {:>9.{digits}f}" * 3 + " {:>9}\n"
+    row_fmt = "{:>{width}s} " + " {:>15.{digits}f}" * 3 + " {:>9}\n"
+
     for row in rows:
         report += row_fmt.format(*row, width=width, digits=digits)
     report += "\n"
@@ -141,9 +142,11 @@ def format_classification_report(data_dict):
 
         if line_heading == "accuracy":
             avg = [data_dict[line_heading], sum(s)]
+            
             row_fmt_accuracy = "{:>{width}s} " + \
-                    " {:>9.{digits}}" * 2 + " {:>9.{digits}f}" + \
-                    " {:>9}\n"
+                 " {:>15.{digits}}" * 2 + " {:>15.{digits}f}" + \
+                 " {:>9}\n"
+
             report += row_fmt_accuracy.format(line_heading, "", "",
                                               *avg, width=width,
                                               digits=digits)
