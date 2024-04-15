@@ -127,7 +127,7 @@ def format_classification_report(data_dict):
     head_fmt = "{:>{width}s} " + " {:>15}" * len(headers)
     report = head_fmt.format("", *headers, width=width)
     report += "\n\n"
-    row_fmt = "{:>{width}s} " + " {:>15.{digits}f}" * 3 + " {:>9}\n"
+    row_fmt = "{:>{width}s} " + " {:>15.{digits}f}" * 3 + " {:>15}\n"
 
     for row in rows:
         report += row_fmt.format(*row, width=width, digits=digits)
@@ -144,8 +144,8 @@ def format_classification_report(data_dict):
             avg = [data_dict[line_heading], sum(s)]
             
             row_fmt_accuracy = "{:>{width}s} " + \
-                 " {:>15.{digits}}" * 2 + " {:>15.{digits}f}" + \
-                 " {:>9}\n"
+                   " {:>15.{digits}}" * 2 + " {:>15.{digits}f}" + \
+                   " {:>15}\n"
 
             report += row_fmt_accuracy.format(line_heading, "", "",
                                               *avg, width=width,
