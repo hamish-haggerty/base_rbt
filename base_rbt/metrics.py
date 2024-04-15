@@ -124,7 +124,7 @@ def format_classification_report(data_dict):
     longest_last_line_heading = "weighted avg"
     name_width = max(len(cn) for cn in target_names)
     width = max(name_width, len(longest_last_line_heading), digits)
-    head_fmt = "{:>{width}s} " + " {:>9}" * len(headers)
+    head_fmt = "{:>{width}s} " + " {:>15}" * len(headers)
     report = head_fmt.format("", *headers, width=width)
     report += "\n\n"
     row_fmt = "{:>{width}s} " + " {:>15.{digits}f}" * 3 + " {:>9}\n"
