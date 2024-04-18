@@ -2,7 +2,7 @@ dataset: isic
 arch: resnet50
 train_type: supervised #which train type we will perform: SSL or supervised
 weight_type: random #random,imgnet_sup_pretrained, imgnet_bt_pretrained, dermnet_bt_pretrained
-learn_type: supervised  #or supervised semi_supervised, linear_evaluation
+learn_type: standard  #or standard semi_supervised, linear_evaluation
 size: 256 #size of the image
 n_in: 3
 bs: 64 #batch size for training
