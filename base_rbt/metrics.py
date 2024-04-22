@@ -524,21 +524,65 @@ def get_xval_metrics(xval,yval,model,aug_pipelines_test,int_to_classes,numavg=3)
 
     return metrics
 
-def Mean_Results(results,vocab):
-    "Get mean classif report and display it"
+# def Mean_Results(results,vocab):
+#     "Get mean classif report and display it"
+
+#     lst = list(vocab) + ['accuracy', 'macro avg', 'weighted avg']
+#     reports=[]
+#     accs=[]
+#     for i in results.keys():
+#         if type(i)!=int:
+#             continue
+#         report = {j:results[i][j] for j in results[i].keys() if j in lst}
+#         reports.append(report)
+#         accs.append(results[i]['acc'])
+#     mean_report = Mean_Report(reports,vocab)
+#     print(format_classification_report(mean_report))
+    
+#     print(f'mean acc is {mean(accs)} with std {stdev(accs)}')
+
+#     return mean_report
+from statistics import mean, stdev
+
+def Mean_Results(results, vocab):
+    "Get mean classification report and display it"
 
     lst = list(vocab) + ['accuracy', 'macro avg', 'weighted avg']
-    reports=[]
-    accs=[]
+    reports = []
+    accs = []
+    weighted_f1_scores = []  # List to store weighted F1 scores
+
+    # Loop through each result, assuming integer keys are the valid entries
     for i in results.keys():
-        if type(i)!=int:
+        if type(i) != int:
             continue
-        report = {j:results[i][j] for j in results[i].keys() if j in lst}
+        report = {j: results[i][j] for j in results[i].keys() if j in lst}
         reports.append(report)
         accs.append(results[i]['acc'])
-    mean_report = Mean_Report(reports,vocab)
+        
+        # Collect weighted average F1-score
+        if 'weighted avg' in report and 'f1-score' in report['weighted avg']:
+            weighted_f1_scores.append(report['weighted avg']['f1-score'])
+
+    # Compute mean report using a helper function, assumed to be defined
+    mean_report = Mean_Report(reports, vocab)
+
+    # Output the classification report formatted
     print(format_classification_report(mean_report))
-    
-    print(f'mean acc is {mean(accs)} with std {stdev(accs)}')
+
+    # Calculate and print mean and standard deviation for accuracy
+    mean_acc = mean(accs)
+    std_acc = stdev(accs)
+    print(f'Mean Accuracy: {mean_acc:.5f} with Standard Deviation: {std_acc:.5f}')
+
+    # Calculate and print mean and standard deviation for weighted F1-score
+    if weighted_f1_scores:
+        mean_weighted_f1 = mean(weighted_f1_scores)
+        std_weighted_f1 = stdev(weighted_f1_scores)
+        print(f'Mean Weighted F1-Score: {mean_weighted_f1:.5f} with Standard Deviation: {std_weighted_f1:.5f}')
+    else:
+        print("No Weighted F1-Scores to display.")
 
     return mean_report
+
+
