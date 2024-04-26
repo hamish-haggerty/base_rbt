@@ -782,12 +782,12 @@ class BarlowTrainer:
         else:
             # Unfreeze the entire encoder
             self.learn.unfreeze()
+            test_grad_on(self.learn.model)
         
         
         self.learn.summary()
 
 
-        test_grad_on(self.learn.model)
         lrs = self.learn.lr_find(num_it=self.num_it) #lets find a good maximum lr
         self.learn.fit_one_cycle(epochs, lrs.valley, cbs=self._get_training_cbs(interrupt_epoch))
 
