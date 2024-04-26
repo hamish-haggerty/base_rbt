@@ -157,7 +157,6 @@ def get_resnet_encoder(model,n_in=3):
     model.add_module('flatten', torch.nn.Flatten())
     return model
 
-
 @torch.no_grad()
 def resnet_arch_to_encoder(arch: Literal['smallres','resnet18', 'resnet34', 'resnet50'],
                            weight_type: Literal['random', 'imgnet_bt_pretrained', 'imgnet_sup_pretrained',

@@ -6,9 +6,9 @@ __all__ = ['IMAGENET_Augs', 'DERMNET_Augs', 'bt_aug_func_dict', 'RandomGaussianB
            'helper_get_bt_augs', 'get_bt_imagenet_aug_pipelines', 'get_bt_dermnet_aug_pipelines',
            'get_bt_aug_pipelines', 'get_ssl_dls', 'BarlowTwinsModel', 'create_barlow_twins_model', 'BarlowTwins',
            'lf_bt', 'lf_bt_sparse_head', 'lf_bt_indiv_sparse', 'lf_bt_group_sparse', 'lf_bt_group_norm_sparse',
-           'lf_bt_fun', 'lf_bt_proj_group_sparse', 'my_splitter_bt', 'show_bt_batch', 'SaveBarlowLearnerCheckpoint',
-           'SaveBarlowLearnerModel', 'load_barlow_model', 'BarlowTrainer', 'main_bt_train', 'get_bt_experiment_state',
-           'main_bt_experiment']
+           'lf_bt_fun', 'lf_bt_proj_group_sparse', 'my_splitter_bt', 'my_splitter_bt_last_block_resnet50',
+           'show_bt_batch', 'SaveBarlowLearnerCheckpoint', 'SaveBarlowLearnerModel', 'load_barlow_model',
+           'BarlowTrainer', 'main_bt_train', 'get_bt_experiment_state', 'main_bt_experiment']
 
 # %% ../nbs/base_model.ipynb 3
 import importlib
@@ -627,7 +627,15 @@ def lf(self:BarlowTwins, pred,*yb):
 def my_splitter_bt(m):
     return L(sequential(*m.encoder),m.projector).map(params)
 
-# %% ../nbs/base_model.ipynb 25
+# %% ../nbs/base_model.ipynb 24
+def my_splitter_bt_last_block_resnet50(m):
+    #Note: don't think we actually need this guy.
+    "Freeze all but the last bottleneck layer"
+    enc_except_final_block = sequential(*m.encoder[:-3], m.encoder[-3][:-1])
+    final_block_and_projector = sequential(m.encoder[-3][-1], m.projector)
+    return L(enc_except_final_block, final_block_and_projector).map(params)
+
+# %% ../nbs/base_model.ipynb 26
 def show_bt_batch(dls,n_in,aug,n=2,print_augs=True):
     "Given a linear learner, show a batch"
         
@@ -639,7 +647,7 @@ def show_bt_batch(dls,n_in,aug,n=2,print_augs=True):
     learn('before_batch')
     axes = learn.barlow_twins.show(n=n)
 
-# %% ../nbs/base_model.ipynb 26
+# %% ../nbs/base_model.ipynb 27
 class SaveBarlowLearnerCheckpoint(Callback):
     "Save such that can resume training "
     def __init__(self, experiment_dir,start_epoch=0, save_interval=250,with_opt=True):
@@ -674,7 +682,7 @@ class SaveBarlowLearnerModel(Callback):
         print(f"encoder state dict saved to {encoder_path}")
 
 
-# %% ../nbs/base_model.ipynb 27
+# %% ../nbs/base_model.ipynb 28
 def load_barlow_model(arch,ps,hs,path):
 
     encoder = resnet_arch_to_encoder(arch=arch, weight_type='random')
@@ -686,7 +694,7 @@ def load_barlow_model(arch,ps,hs,path):
 
     
 
-# %% ../nbs/base_model.ipynb 28
+# %% ../nbs/base_model.ipynb 29
 class BarlowTrainer:
     "Setup a learner for training a BT model. Can do transfer learning, normal training, or resume training."
 
@@ -700,6 +708,7 @@ class BarlowTrainer:
                  model_type,
                  wd,
                  device,
+                 splitter_str='none',
                  num_it=100, #Number of iterations to run lr_find for.
                  load_learner_path=None, #Path to load learner from (optional)
                  experiment_dir=None, #Where to save model checkpoints (optional)
@@ -721,6 +730,7 @@ class BarlowTrainer:
         """
       
         self.model.to(self.device)
+
 
         cbs = [BarlowTwins(self.bt_aug_pipelines,n_in=self.n_in,lmb=self.lmb,
                            sparsity_level=self.sparsity_level,print_augs=False,
@@ -761,7 +771,22 @@ class BarlowTrainer:
         self.learn.freeze()
         test_grad_off(self.learn.encoder)
         self.learn.fit(freeze_epochs)
-        self.learn.unfreeze()
+
+         # Check if the splitter is 'my_splitter_bt_last_block_resnet50'
+        if self.splitter_str == 'my_splitter_bt_last_block_resnet50':
+            # Unfreeze only the last bottleneck block
+            for param in self.learn.model.encoder[-3][-1].parameters():
+                param.requires_grad = True
+            
+            print(f'splitter_str={self.splitter_str}')
+        else:
+            # Unfreeze the entire encoder
+            self.learn.unfreeze()
+        
+        
+        self.learn.summary()
+
+
         test_grad_on(self.learn.model)
         lrs = self.learn.lr_find(num_it=self.num_it) #lets find a good maximum lr
         self.learn.fit_one_cycle(epochs, lrs.valley, cbs=self._get_training_cbs(interrupt_epoch))
@@ -800,7 +825,7 @@ class BarlowTrainer:
         return self.learn
 
 
-# %% ../nbs/base_model.ipynb 29
+# %% ../nbs/base_model.ipynb 34
 def main_bt_train(config,
         start_epoch = 0,
         interrupt_epoch = 100,
@@ -814,6 +839,13 @@ def main_bt_train(config,
 
     # Initialize the device for model training (CUDA or CPU)
     device = default_device()
+
+    #This is for backwards compatibility with configs that don't have a splitter_str.
+    if hasattr(config,'splitter_str'):
+        splitter_str=config.splitter_str
+    else:
+        splitter_str='none'
+
 
     # Construct the model based on the configuration
     # This involves selecting the architecture and setting model-specific hyperparameters.
@@ -845,6 +877,7 @@ def main_bt_train(config,
                     wd=config.wd,
                     num_it=config.num_it,
                     device=device,
+                    splitter_str=splitter_str,
                     load_learner_path=load_learner_path,
                     experiment_dir=experiment_dir,
                     start_epoch=start_epoch,
@@ -857,7 +890,7 @@ def main_bt_train(config,
     return learn
 
 
-# %% ../nbs/base_model.ipynb 31
+# %% ../nbs/base_model.ipynb 36
 def get_bt_experiment_state(config,base_dir):
     """Get the load_learner_path, learn_type, start_epoch, interrupt_epoch for BT experiment.
        Basically this tells us how to continue learning (e.g. we have run two sessions for 
@@ -888,7 +921,7 @@ def get_bt_experiment_state(config,base_dir):
 
     return load_learner_path, learn_type, start_epoch, interrupt_epoch
 
-# %% ../nbs/base_model.ipynb 32
+# %% ../nbs/base_model.ipynb 37
 def main_bt_experiment(config,
                       base_dir,
                       ):

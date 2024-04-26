@@ -2,13 +2,14 @@
 
 # %% auto 0
 __all__ = ['predict_model', 'predict_ensemble', 'classification_report_wrapper', 'format_classification_report', 'Mean_Report',
-           'Mean_Results', 'print_confusion_matrix', 'plot_roc', 'plot_pr', 'Auc_Dict', 'Pr_Dict',
-           'predict_whole_model', 'get_dls_metrics', 'get_xval_metrics']
+           'print_confusion_matrix', 'plot_roc', 'plot_pr', 'Auc_Dict', 'Pr_Dict', 'predict_whole_model',
+           'get_dls_metrics', 'get_xval_metrics', 'Mean_Results']
 
 # %% ../nbs/metrics.ipynb 4
 from fastai.vision.all import *
 import torch
 from statistics import mean,stdev
+
 import numpy as np
 import scikitplot 
 
@@ -180,26 +181,6 @@ def Mean_Report(reports, classes):
 
 
 # %% ../nbs/metrics.ipynb 11
-def Mean_Results(results,vocab):
-    "Get mean classif report and display it"
-
-    lst = list(vocab) + ['accuracy', 'macro avg', 'weighted avg']
-    reports=[]
-    accs=[]
-    for i in results.keys():
-        if type(i)!=int:
-            continue
-        report = {j:results[i][j] for j in results[i].keys() if j in lst}
-        reports.append(report)
-        accs.append(results[i]['acc'])
-    mean_report = Mean_Report(reports,vocab)
-    print(format_classification_report(mean_report))
-    
-    print(f'mean acc is {mean(accs)} with std {stdev(accs)}')
-
-    return mean_report
-
-# %% ../nbs/metrics.ipynb 18
 def print_confusion_matrix(ypred, y, vocab):
     # Convert ypred and y to numpy arrays
     ypred = ypred.cpu().numpy()
@@ -218,7 +199,7 @@ def print_confusion_matrix(ypred, y, vocab):
     sns.heatmap(df_cm, annot=True, cmap="Blues")
 
 
-# %% ../nbs/metrics.ipynb 20
+# %% ../nbs/metrics.ipynb 13
 def _plot_precision_recall(y_true, y_probas,
                           title='Precision-Recall Curve',
                           plot_micro=True,
@@ -384,7 +365,7 @@ def plot_pr(ytest,probs,int_to_classes):
     plt.legend(loc='best', fontsize='small')
     plt.show()
 
-# %% ../nbs/metrics.ipynb 22
+# %% ../nbs/metrics.ipynb 15
 def plot_roc(ytest,probs,int_to_classes):
     
     #We want the AUC dict; and we want a plot as well.
@@ -408,7 +389,7 @@ def plot_pr(ytest,probs,int_to_classes):
     plt.legend(loc='best', fontsize='small')
     plt.show()
 
-# %% ../nbs/metrics.ipynb 23
+# %% ../nbs/metrics.ipynb 16
 def Auc_Dict(ytest,probs,int_to_classes=None):
     "Mostly used to verify results of plot (debug)"
 
@@ -451,7 +432,7 @@ def Pr_Dict(ytest,probs,int_to_classes=None):
     return pr_dict
 
 
-# %% ../nbs/metrics.ipynb 24
+# %% ../nbs/metrics.ipynb 17
 @torch.no_grad()
 def predict_whole_model(dls_test, model, aug_pipelines_test, numavg=3, criterion=CrossEntropyLossFlat(), deterministic=False):
     """
