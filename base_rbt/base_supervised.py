@@ -588,7 +588,7 @@ def main_fine_tune_isic(config,base_dir,dataset_dir):
     print('base config is:\n')
     pretty_print_ns(config)
     print('\n')
-    for pct_dataset_train in [1.0,0.5]:
+    for pct_dataset_train in [1.0]:
 
         config.pct_dataset_train = pct_dataset_train
 
