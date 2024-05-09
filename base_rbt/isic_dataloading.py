@@ -164,7 +164,8 @@ def get_bt_isic_train_dls(bs,
 
     dataset_dir = "/content/isic_dataset" #hardcoded for ssl.
 
-    combined_resized_dir = os.path.join(dataset_dir, "ISIC_2019_TrainingValid_Resized")
+    #combined_resized_dir = os.path.join(dataset_dir, "ISIC_2019_TrainingValid_Resized")
+    combined_resized_dir = os.path.join(dataset_dir, "ISIC_2019_Training_Resized")
     fnames = get_image_files(combined_resized_dir)
     n = int(len(fnames)*pct_dataset)
     
@@ -177,5 +178,7 @@ def get_bt_isic_train_dls(bs,
         device=device,
         num_workers=num_workers*(device=='cuda')
                                           )
+
+    test_eq(len(dls.train_ds),2554) #i.e. only training data. no validation.                                    
     return dls
 
