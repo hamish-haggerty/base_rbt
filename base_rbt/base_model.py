@@ -293,7 +293,7 @@ def get_ssl_dls(dataset,#cifar10, dermnet, etc
     return dls_train
 
 
-# %% ../nbs/base_model.ipynb 11
+# %% ../nbs/base_model.ipynb 10
 #Base functions / classes we need to train a BT / RBT model.
 
 #TODO: We can make these more abstract so can incrementally modify to build `bt/rbt` and also `new idea.` But for 
@@ -371,7 +371,7 @@ class BarlowTwins(Callback):
         for i in range(n): images += [x1[i],x2[i]]
         return show_batch(x1[0], None, images, max_n=len(images), nrows=n)
 
-# %% ../nbs/base_model.ipynb 12
+# %% ../nbs/base_model.ipynb 11
 #We want access to both representation and projection
 
 #TODO: We can make these more abstract so can incrementally modify to build `bt/rbt` and also `new idea.` But for 
@@ -400,7 +400,7 @@ def create_barlow_twins_model(encoder, hidden_size=256, projection_size=128, bn=
  
     return BarlowTwinsModel(encoder, projector)
 
-# %% ../nbs/base_model.ipynb 15
+# %% ../nbs/base_model.ipynb 14
 def lf_bt(pred,I,lmb):
     bs,nf = pred.size(0)//2,pred.size(1)
     
@@ -414,7 +414,7 @@ def lf_bt(pred,I,lmb):
     loss = (cdiff*I + cdiff*(1-I)*lmb).sum() 
     return loss
 
-# %% ../nbs/base_model.ipynb 16
+# %% ../nbs/base_model.ipynb 15
 def lf_bt_sparse_head(pred,I,lmb,projector,sparsity_level):
   
     bt_loss = lf_bt(pred,I,lmb)
@@ -429,7 +429,7 @@ def lf_bt_sparse_head(pred,I,lmb,projector,sparsity_level):
  
     return loss
 
-# %% ../nbs/base_model.ipynb 17
+# %% ../nbs/base_model.ipynb 16
 def lf_bt_indiv_sparse(pred,I,lmb,sparsity_level,
                       ):
 
@@ -462,7 +462,7 @@ def lf_bt_indiv_sparse(pred,I,lmb,sparsity_level,
     
 
 
-# %% ../nbs/base_model.ipynb 18
+# %% ../nbs/base_model.ipynb 17
 def lf_bt_group_sparse(pred,I,lmb,sparsity_level,
                       ):
 
@@ -492,7 +492,7 @@ def lf_bt_group_sparse(pred,I,lmb,sparsity_level,
     torch.cuda.empty_cache()
     return loss
 
-# %% ../nbs/base_model.ipynb 19
+# %% ../nbs/base_model.ipynb 18
 def lf_bt_group_norm_sparse(pred,I,lmb,sparsity_level,
                       ):
 
@@ -526,7 +526,7 @@ def lf_bt_group_norm_sparse(pred,I,lmb,sparsity_level,
     torch.cuda.empty_cache()
     return loss
 
-# %% ../nbs/base_model.ipynb 20
+# %% ../nbs/base_model.ipynb 19
 def lf_bt_fun(pred,I,lmb,sparsity_level,
                       ):
 
@@ -560,7 +560,7 @@ def lf_bt_fun(pred,I,lmb,sparsity_level,
     torch.cuda.empty_cache()
     return loss
 
-# %% ../nbs/base_model.ipynb 21
+# %% ../nbs/base_model.ipynb 20
 def lf_bt_proj_group_sparse(pred,I,lmb,sparsity_level,
                            ):
 
@@ -588,7 +588,7 @@ def lf_bt_proj_group_sparse(pred,I,lmb,sparsity_level,
     torch.cuda.empty_cache()
     return loss
 
-# %% ../nbs/base_model.ipynb 22
+# %% ../nbs/base_model.ipynb 21
 @patch
 def lf(self:BarlowTwins, pred,*yb):
     "Assumes model created according to type p3"
@@ -623,11 +623,11 @@ def lf(self:BarlowTwins, pred,*yb):
 
     else: raise(Exception)
 
-# %% ../nbs/base_model.ipynb 23
+# %% ../nbs/base_model.ipynb 22
 def my_splitter_bt(m):
     return L(sequential(*m.encoder),m.projector).map(params)
 
-# %% ../nbs/base_model.ipynb 24
+# %% ../nbs/base_model.ipynb 23
 def my_splitter_bt_last_block_resnet50(m):
     #Note: don't think we actually need this guy.
     "Freeze all but the last bottleneck layer"
@@ -635,7 +635,7 @@ def my_splitter_bt_last_block_resnet50(m):
     final_block_and_projector = sequential(m.encoder[-3][-1], m.projector)
     return L(enc_except_final_block, final_block_and_projector).map(params)
 
-# %% ../nbs/base_model.ipynb 26
+# %% ../nbs/base_model.ipynb 25
 def show_bt_batch(dls,n_in,aug,n=2,print_augs=True):
     "Given a linear learner, show a batch"
         
@@ -647,7 +647,7 @@ def show_bt_batch(dls,n_in,aug,n=2,print_augs=True):
     learn('before_batch')
     axes = learn.barlow_twins.show(n=n)
 
-# %% ../nbs/base_model.ipynb 27
+# %% ../nbs/base_model.ipynb 26
 class SaveBarlowLearnerCheckpoint(Callback):
     "Save such that can resume training "
     def __init__(self, experiment_dir,start_epoch=0, save_interval=250,with_opt=True):
@@ -682,7 +682,7 @@ class SaveBarlowLearnerModel(Callback):
         print(f"encoder state dict saved to {encoder_path}")
 
 
-# %% ../nbs/base_model.ipynb 28
+# %% ../nbs/base_model.ipynb 27
 def load_barlow_model(arch,ps,hs,path):
 
     encoder = resnet_arch_to_encoder(arch=arch, weight_type='random')
@@ -694,7 +694,7 @@ def load_barlow_model(arch,ps,hs,path):
 
     
 
-# %% ../nbs/base_model.ipynb 29
+# %% ../nbs/base_model.ipynb 28
 class BarlowTrainer:
     "Setup a learner for training a BT model. Can do transfer learning, normal training, or resume training."
 
@@ -825,7 +825,7 @@ class BarlowTrainer:
         return self.learn
 
 
-# %% ../nbs/base_model.ipynb 34
+# %% ../nbs/base_model.ipynb 33
 def main_bt_train(config,
         start_epoch = 0,
         interrupt_epoch = 100,
@@ -890,7 +890,7 @@ def main_bt_train(config,
     return learn
 
 
-# %% ../nbs/base_model.ipynb 36
+# %% ../nbs/base_model.ipynb 35
 def get_bt_experiment_state(config,base_dir):
     """Get the load_learner_path, learn_type, start_epoch, interrupt_epoch for BT experiment.
        Basically this tells us how to continue learning (e.g. we have run two sessions for 
@@ -921,7 +921,7 @@ def get_bt_experiment_state(config,base_dir):
 
     return load_learner_path, learn_type, start_epoch, interrupt_epoch
 
-# %% ../nbs/base_model.ipynb 37
+# %% ../nbs/base_model.ipynb 36
 def main_bt_experiment(config,
                       base_dir,
                       ):
