@@ -173,7 +173,7 @@ def get_bt_isic_train_dls(bs,
     
     test_eq(len(dls.train_ds),2554)
 
-    return DataLoaders
+    return dls
 
 
 
