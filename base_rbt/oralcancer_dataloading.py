@@ -78,6 +78,7 @@ def get_supervised_oralcancer_test_dls(bs,
         item_tfms=item_tfms,
         valid_pct=0,  # No validation split for the test set
         device=device,
+        drop_last=False,
         num_workers=num_workers * (device == 'cuda')
     )
 
