@@ -5,7 +5,7 @@ weight_type: imgnet_bt_pretrained #random,imgnet_sup_pretrained, imgnet_bt_pretr
 learn_type: semi_supervised  #or standard semi_supervised, linear_evaluation
 size: 256 #size of the image
 n_in: 3
-bs: 64 #batch size for training
+bs: 20 #batch size for training
 bs_test: 64 #batch size for testing
 sup_augs: supervised_isic_augmentations # other options: bt_`dataset_name`_aug_pipelines
 wd: 0.0
