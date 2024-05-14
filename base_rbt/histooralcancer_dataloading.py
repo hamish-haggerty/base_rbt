@@ -95,7 +95,7 @@ def get_bt_histooralcancer_train_dls(bs,size,device,pct_dataset=1.0,num_workers=
     pct_oscc = 0.025
     pct_normal = 1.0
 
-    dataset_dir = "/content/drive/My Drive/histo_oral_cancer"    
+    dataset_dir = "/content/drive/My Drive/histo_oral_cancer_resized"
     train_dir = os.path.join(dataset_dir, "train")  # Corrected path to the train directory
 
     # Paths to Normal and OSCC directories
