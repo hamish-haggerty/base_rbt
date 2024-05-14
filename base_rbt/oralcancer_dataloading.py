@@ -86,17 +86,32 @@ def get_supervised_oralcancer_test_dls(bs,
 
 
 def get_bt_oralcancer_train_dls(bs,size,device,pct_dataset=1.0,num_workers=12):
-    #NOTE: assume unzip like: !unzip -q -o "/content/drive/My Drive/dermnet.zip" -d "/content/drive/My Drive/DermNetDataset"
 
     dataset_dir = "/content/Oral_Cancer_Data"  #hardcode for SSL.
 
-    return get_supervised_oralcancer_train_dls(bs, 
-                                        dataset_dir, 
-                                        size=size, 
-                                        device=device, 
-                                        pct_dataset=pct_dataset, 
-                                        num_workers=num_workers)
-
+    train_dir = os.path.join(dataset_dir, "train", "train")  # Adjust for the additional directory layer
     
+    # Get image files from the training directory
+    fnames = get_image_files(train_dir)
+    fnames = fnames*7 #so that can have batch sizes of 128, basically.
+
+    # Apply subset size
+    n = int(len(fnames) * pct_dataset)
+    fnames = fnames[:n]
+
+    # Data transformations
+    item_tfms = [Resize(size)]
+
+    # Create the DataLoader
+    dls = ImageDataLoaders.from_path_func(
+        path=train_dir,
+        fnames=fnames,
+        label_func=label_func,
+        bs=bs,
+        item_tfms=item_tfms,
+        valid_pct=0.0,  # No validation split, using all for training
+        device=device,
+        num_workers=num_workers * (device == 'cuda')
+    )
 
     return dls
