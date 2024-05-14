@@ -21,12 +21,29 @@ def label_func(x):
 def get_supervised_histooralcancer_train_dls(bs, dataset_dir, size=256, device='cpu', pct_dataset=1.0, num_workers=12):
     train_dir = os.path.join(dataset_dir, "train")  # Corrected path to the train directory
     
-    # Get image files from the training directory
-    fnames = get_image_files(train_dir)
+    train_dir = os.path.join(dataset_dir, "train")  # Corrected path to the train directory
+
+    # Paths to Normal and OSCC directories
+    normal_dir = os.path.join(train_dir, "Normal")
+    oscc_dir = os.path.join(train_dir, "OSCC")
+
+    # Get image files from the Normal and OSCC directories
+    fnames_normal = get_image_files(normal_dir)
+    fnames_oscc = get_image_files(oscc_dir)
+
+    # Sort filenames to ensure consistency
+    fnames_normal = sorted(fnames_normal)
+    fnames_oscc = sorted(fnames_oscc)
 
     # Apply subset size
-    n = int(len(fnames) * pct_dataset)
-    fnames = fnames[:n]
+    n_normal = int(len(fnames_normal) * (pct_dataset / 2))
+    n_oscc = int(len(fnames_oscc) * (pct_dataset / 2))
+
+    fnames_normal = fnames_normal[:n_normal]
+    fnames_oscc = fnames_oscc[:n_oscc]
+
+    # Combine the file lists
+    fnames = fnames_normal + fnames_oscc
 
     # Data transformations
 
