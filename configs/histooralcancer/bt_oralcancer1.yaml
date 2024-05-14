@@ -1,4 +1,4 @@
-dataset: oralcancer
+dataset: histooralcancer
 arch: resnet50
 train_type: SSL #which train type we will perform: SSL or supervised
 weight_type: imgnet_sup_pretrained #random, imgnet_bt_pretrained,imgnet_sup_pretrained etc
