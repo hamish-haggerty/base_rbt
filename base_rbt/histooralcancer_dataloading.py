@@ -29,7 +29,6 @@ def get_supervised_histooralcancer_train_dls(bs, dataset_dir, size=256, device='
     fnames = fnames[:n]
 
     # Data transformations
-    item_tfms = [Resize(size)]
 
     # Create the DataLoader
     dls = ImageDataLoaders.from_path_func(
@@ -37,7 +36,6 @@ def get_supervised_histooralcancer_train_dls(bs, dataset_dir, size=256, device='
         fnames=fnames,
         label_func=label_func,
         bs=bs,
-        item_tfms=item_tfms,
         valid_pct=0.0,  # No validation split, using all for training
         device=device,
         num_workers=num_workers * (device == 'cuda')
@@ -57,15 +55,12 @@ def get_supervised_histooralcancer_test_dls(bs, dataset_dir, size=256, device='c
     fnames = fnames[:n]
 
     # Data transformations
-    item_tfms = [Resize(size)]
-
     # Create the DataLoader
     dls = ImageDataLoaders.from_path_func(
         path=test_dir,  # Path used for DataLoader
         fnames=fnames,
         label_func=label_func,
         bs=bs,
-        item_tfms=item_tfms,
         valid_pct=0,  # No validation split for the test set
         device=device,
         drop_last=False,
