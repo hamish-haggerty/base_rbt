@@ -44,6 +44,20 @@ def get_supervised_histooralcancer_train_dls(bs, dataset_dir, size=256, device='
     fnames_normal = fnames_normal[:n_normal]
     fnames_oscc = fnames_oscc[:n_oscc]
 
+        # Extract the filenames (without the full path)
+    fname_normal_0 = fnames_normal[0].parts[-1]
+    fname_normal_10 = fnames_normal[10].parts[-1]
+    fname_oscc_0 = fnames_oscc[0].parts[-1]
+    fname_oscc_10 = fnames_oscc[10].parts[-1]
+
+
+    # Testing with test_eq
+    test_eq(fname_normal_0, "Normal_100x_1.jpg")
+    test_eq(fname_normal_10, "Normal_100x_23.jpg")
+    test_eq(fname_oscc_0, "OSCC_100x_1.jpg")
+    test_eq(fname_oscc_10, "OSCC_100x_109.jpg")
+
+
     # Combine the file lists
     fnames = fnames_normal + fnames_oscc
 
@@ -116,6 +130,20 @@ def get_bt_histooralcancer_train_dls(bs,size,device,pct_dataset=1.0,num_workers=
 
     fnames_normal = fnames_normal[:n_normal]
     fnames_oscc = fnames_oscc[:n_oscc]
+
+    # Extract the filenames (without the full path)
+    fname_normal_0 = fnames_normal[0].name
+    fname_oscc_0 = fnames_oscc[0].name
+    fname_normal_10 = fnames_normal[10].name if len(fnames_normal) > 10 else "Not enough files"
+    fname_oscc_10 = fnames_oscc[10].name if len(fnames_oscc) > 10 else "Not enough files"
+
+
+
+    # Testing with test_eq
+    test_eq(fname_normal_0, "Normal_100x_1.jpg")
+    test_eq(fname_oscc_0, "OSCC_100x_1.jpg")
+    test_eq(fname_normal_10, "Normal_100x_23.jpg")
+    test_eq(fname_oscc_10, "OSCC_100x_109.jpg")
 
     # Combine the file lists
     fnames = fnames_normal + fnames_oscc*10
