@@ -11,7 +11,7 @@ import torch
 from statistics import mean,stdev
 
 import numpy as np
-import scikitplot 
+#import scikitplot 
 
 from sklearn.preprocessing import label_binarize
 from sklearn.metrics import roc_auc_score,average_precision_score,precision_recall_curve,roc_curve,auc,classification_report,confusion_matrix
