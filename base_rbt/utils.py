@@ -6,7 +6,7 @@ __all__ = ['PACKAGE_NAME', 'test_grad_on', 'test_grad_off', 'seed_everything', '
            'create_experiment_directory', 'save_configuration', 'save_metadata_file', 'update_experiment_index',
            'get_latest_commit_hash', 'setup_experiment', 'InterruptCallback', 'SaveLearnerCheckpoint', 'extract_number',
            'find_largest_file', 'return_max_filename', 'get_highest_num_path', 'save_dict_to_gdrive',
-           'load_dict_from_gdrive']
+           'load_dict_from_gdrive', 'setup_and_verify_model_weights']
 
 # %% ../nbs/utils.ipynb 3
 from fastcore.test import *
@@ -28,12 +28,13 @@ import hashlib
 import subprocess
 import re
 import sys
-
+import os
+import zipfile
 
 # %% ../nbs/utils.ipynb 4
 # cfg = config.get_config()
 # PACKAGE_NAME = cfg.lib_name
-PACKAGE_NAME = 'base_rbt'
+PACKAGE_NAME = 'base_rbt' #hardcoded for now
 
 # %% ../nbs/utils.ipynb 5
 def test_grad_on(model):
@@ -478,3 +479,28 @@ def load_dict_from_gdrive(directory,filename):
     with open(filepath, "rb") as f:
         d = pickle.load(f)
     return d
+
+# %% ../nbs/utils.ipynb 19
+def setup_and_verify_model_weights():
+
+    # Define paths
+    zip_path = '/content/drive/MyDrive/model_weights.zip'
+    extract_path = '/content/drive/MyDrive'
+    
+    # Check if weights are already unzipped
+    example_path = '/content/drive/MyDrive/Experiments/barlow_twins/SSL/isicufes/resnet50/c34772a2/trained_encoder_epoch_99.pth'
+    
+    if os.path.exists(example_path):
+        print("Model weights are already set up.")
+    else:
+        print("Model weights not found. Attempting to unzip...")
+        
+        if os.path.exists(zip_path):
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(extract_path)
+            print(f"Model weights unzipped to: {extract_path}/Experiments")
+        else:
+            print(f"Error: Zip file not found at: {zip_path}")
+            print("Please ensure you've uploaded 'shared_model_weights.zip' to your Google Drive root")
+# Usage:
+# setup_and_verify_model_weights() (only have to call once)
