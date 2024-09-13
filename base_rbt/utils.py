@@ -6,7 +6,7 @@ __all__ = ['PACKAGE_NAME', 'test_grad_on', 'test_grad_off', 'seed_everything', '
            'create_experiment_directory', 'save_configuration', 'save_metadata_file', 'update_experiment_index',
            'get_latest_commit_hash', 'setup_experiment', 'InterruptCallback', 'SaveLearnerCheckpoint', 'extract_number',
            'find_largest_file', 'return_max_filename', 'get_highest_num_path', 'save_dict_to_gdrive',
-           'load_dict_from_gdrive', 'setup_and_verify_model_weights']
+           'load_dict_from_gdrive', 'download_weights']
 
 # %% ../nbs/utils.ipynb 3
 from fastcore.test import *
@@ -203,6 +203,12 @@ def resnet_arch_to_encoder(arch: Literal['smallres','resnet18', 'resnet34', 'res
 
         elif weight_type == 'random':
             _model = resnet18()
+
+        elif weight_type == 'cifar10_pretrained':
+            _model = resnet18() #we load them in elsewhere
+
+
+    
 
     elif arch == 'smallres':
         _model = _SmallRes()
@@ -481,7 +487,7 @@ def load_dict_from_gdrive(directory,filename):
     return d
 
 # %% ../nbs/utils.ipynb 19
-def setup_and_verify_model_weights():
+def download_weights():
 
     # Define paths
     zip_path = '/content/drive/MyDrive/model_weights.zip'

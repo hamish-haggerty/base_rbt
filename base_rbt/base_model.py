@@ -5,10 +5,11 @@ __all__ = ['IMAGENET_Augs', 'DERMNET_Augs', 'bt_aug_func_dict', 'RandomGaussianB
            'get_multi_aug_pipelines', 'get_barlow_twins_aug_pipelines', 'get_bt_cifar10_aug_pipelines',
            'helper_get_bt_augs', 'get_bt_imagenet_aug_pipelines', 'get_bt_dermnet_aug_pipelines',
            'get_bt_aug_pipelines', 'get_ssl_dls', 'BarlowTwinsModel', 'create_barlow_twins_model', 'BarlowTwins',
-           'lf_bt', 'lf_bt_sparse_head', 'lf_bt_indiv_sparse', 'lf_bt_group_sparse', 'lf_bt_group_norm_sparse',
-           'lf_bt_fun', 'lf_bt_proj_group_sparse', 'my_splitter_bt', 'my_splitter_bt_last_block_resnet50',
-           'show_bt_batch', 'SaveBarlowLearnerCheckpoint', 'SaveBarlowLearnerModel', 'load_barlow_model',
-           'BarlowTrainer', 'main_bt_train', 'get_bt_experiment_state', 'main_bt_experiment']
+           'VICRegModel', 'create_vicreg_model', 'VICReg', 'lf_bt', 'lf_bt_sparse_head', 'lf_bt_indiv_sparse',
+           'lf_bt_group_sparse', 'lf_bt_group_norm_sparse', 'lf_bt_fun', 'lf_bt_proj_group_sparse', 'my_splitter_bt',
+           'my_splitter_bt_last_block_resnet50', 'my_splitter_vicreg', 'get_vicreg_splitter', 'show_bt_batch',
+           'SaveBarlowLearnerCheckpoint', 'SaveBarlowLearnerModel', 'load_barlow_model', 'BarlowTrainer',
+           'main_bt_train', 'get_bt_experiment_state', 'main_bt_experiment']
 
 # %% ../nbs/base_model.ipynb 3
 import importlib
@@ -371,7 +372,98 @@ class BarlowTwins(Callback):
         for i in range(n): images += [x1[i],x2[i]]
         return show_batch(x1[0], None, images, max_n=len(images), nrows=n)
 
-# %% ../nbs/base_model.ipynb 11
+# %% ../nbs/base_model.ipynb 12
+# Base functions / classes we need to train a VICReg model
+class VICRegModel(Module):
+    """VICReg model with options for shared or separate projectors"""
+    def __init__(self, encoder1, encoder2, projector1, projector2=None):
+        self.encoder1 = encoder1
+        self.encoder2 = encoder2
+        self.projector1 = projector1
+        self.projector2 = projector2 if projector2 is not None else projector1
+        
+    def forward(self, x1, x2): 
+        z1 = self.projector1(self.encoder1(x1))
+        z2 = self.projector2(self.encoder2(x2))
+        return (z1, z2)
+
+def create_vicreg_model(encoder1, encoder2, hidden_size=256, projection_size=128, bn=True, nlayers=3, shared_projector=True):
+    """
+    Create VICReg model with flexible projector configuration
+    
+    Args:
+    - encoder1: first encoder model
+    - encoder2: second encoder model (can be the same as encoder1 for shared encoder)
+    - hidden_size: hidden size for projector
+    - projection_size: output size for projector
+    - bn: whether to use batch normalization in projector
+    - nlayers: number of layers in projector
+    - shared_projector: if True, use the same projector for both branches
+    """
+    n_in = in_channels(encoder1)
+    with torch.no_grad(): representation = encoder1(torch.randn((2,n_in,128,128)))
+    
+    projector1 = create_mlp_module(representation.size(1), hidden_size, projection_size, bn=bn, nlayers=nlayers)
+    apply_init(projector1)
+    
+    if not shared_projector:
+        projector2 = create_mlp_module(representation.size(1), hidden_size, projection_size, bn=bn, nlayers=nlayers)
+        apply_init(projector2)
+    else:
+        projector2 = None
+    
+    return VICRegModel(encoder1, encoder2, projector1, projector2)
+
+# VICReg callback inheriting from BarlowTwins
+class VICReg(BarlowTwins):
+    def __init__(self, aug_pipelines, n_in, sim_coeff=25, std_coeff=25, cov_coeff=1, 
+                 model_type='vicreg', print_augs=False):
+        super().__init__(aug_pipelines, n_in, None, None, model_type, print_augs)
+        # New VICReg-specific attributes
+        self.sim_coeff = sim_coeff
+        self.std_coeff = std_coeff
+        self.cov_coeff = cov_coeff
+
+    def before_fit(self):
+        self.learn.loss_func = self.lf
+        # Remove the identity matrix initialization as it's not needed for VICReg
+
+    def before_batch(self):
+        # Split the image into left and right halves
+        #will need to verify correctness here.
+        if self.n_in == 1:
+            x_left = TensorImageBW(self.x[..., :self.x.shape[-1]//2])
+            x_right = TensorImageBW(self.x[..., self.x.shape[-1]//2:])
+        elif self.n_in == 3:
+            x_left = TensorImage(self.x[..., :self.x.shape[-1]//2])
+            x_right = TensorImage(self.x[..., self.x.shape[-1]//2:])
+
+        xi, xj = self.aug1(x_left), self.aug2(x_right)
+        self.learn.xb = (xi, xj)  # Pass as separate tensors, not concatenated
+
+        self.index += 1
+
+    # New method for VICReg loss calculation
+    def vicreg_loss(self,z1, z2):
+        pass
+
+    def lf(self, pred, *yb):
+        (z1, z2) = pred
+        return self.vicreg_loss(z1, z2)
+
+    @torch.no_grad()
+    def show(self, n=1):
+        # Adjusted to handle split images
+        bs = self.learn.x.size(0)
+        x_left, x_right = self.learn.x[..., :self.x.shape[-1]//2], self.learn.x[..., self.x.shape[-1]//2:]
+        idxs = np.random.choice(range(bs), n, False)
+        x1 = self.aug1.decode(x_left[idxs].to('cpu').clone()).clamp(0,1)
+        x2 = self.aug2.decode(x_right[idxs].to('cpu').clone()).clamp(0,1)
+        images = []
+        for i in range(n): images += [x1[i], x2[i]]
+        return show_batch(x1[0], None, images, max_n=len(images), nrows=n)
+
+# %% ../nbs/base_model.ipynb 13
 #We want access to both representation and projection
 
 #TODO: We can make these more abstract so can incrementally modify to build `bt/rbt` and also `new idea.` But for 
@@ -400,7 +492,7 @@ def create_barlow_twins_model(encoder, hidden_size=256, projection_size=128, bn=
  
     return BarlowTwinsModel(encoder, projector)
 
-# %% ../nbs/base_model.ipynb 14
+# %% ../nbs/base_model.ipynb 16
 def lf_bt(pred,I,lmb):
     bs,nf = pred.size(0)//2,pred.size(1)
     
@@ -414,7 +506,7 @@ def lf_bt(pred,I,lmb):
     loss = (cdiff*I + cdiff*(1-I)*lmb).sum() 
     return loss
 
-# %% ../nbs/base_model.ipynb 15
+# %% ../nbs/base_model.ipynb 17
 def lf_bt_sparse_head(pred,I,lmb,projector,sparsity_level):
   
     bt_loss = lf_bt(pred,I,lmb)
@@ -429,7 +521,7 @@ def lf_bt_sparse_head(pred,I,lmb,projector,sparsity_level):
  
     return loss
 
-# %% ../nbs/base_model.ipynb 16
+# %% ../nbs/base_model.ipynb 18
 def lf_bt_indiv_sparse(pred,I,lmb,sparsity_level,
                       ):
 
@@ -462,7 +554,7 @@ def lf_bt_indiv_sparse(pred,I,lmb,sparsity_level,
     
 
 
-# %% ../nbs/base_model.ipynb 17
+# %% ../nbs/base_model.ipynb 19
 def lf_bt_group_sparse(pred,I,lmb,sparsity_level,
                       ):
 
@@ -492,7 +584,7 @@ def lf_bt_group_sparse(pred,I,lmb,sparsity_level,
     torch.cuda.empty_cache()
     return loss
 
-# %% ../nbs/base_model.ipynb 18
+# %% ../nbs/base_model.ipynb 20
 def lf_bt_group_norm_sparse(pred,I,lmb,sparsity_level,
                       ):
 
@@ -526,7 +618,7 @@ def lf_bt_group_norm_sparse(pred,I,lmb,sparsity_level,
     torch.cuda.empty_cache()
     return loss
 
-# %% ../nbs/base_model.ipynb 19
+# %% ../nbs/base_model.ipynb 21
 def lf_bt_fun(pred,I,lmb,sparsity_level,
                       ):
 
@@ -560,7 +652,7 @@ def lf_bt_fun(pred,I,lmb,sparsity_level,
     torch.cuda.empty_cache()
     return loss
 
-# %% ../nbs/base_model.ipynb 20
+# %% ../nbs/base_model.ipynb 22
 def lf_bt_proj_group_sparse(pred,I,lmb,sparsity_level,
                            ):
 
@@ -588,7 +680,7 @@ def lf_bt_proj_group_sparse(pred,I,lmb,sparsity_level,
     torch.cuda.empty_cache()
     return loss
 
-# %% ../nbs/base_model.ipynb 21
+# %% ../nbs/base_model.ipynb 23
 @patch
 def lf(self:BarlowTwins, pred,*yb):
     "Assumes model created according to type p3"
@@ -623,11 +715,11 @@ def lf(self:BarlowTwins, pred,*yb):
 
     else: raise(Exception)
 
-# %% ../nbs/base_model.ipynb 22
+# %% ../nbs/base_model.ipynb 24
 def my_splitter_bt(m):
     return L(sequential(*m.encoder),m.projector).map(params)
 
-# %% ../nbs/base_model.ipynb 23
+# %% ../nbs/base_model.ipynb 25
 def my_splitter_bt_last_block_resnet50(m):
     #Note: don't think we actually need this guy.
     "Freeze all but the last bottleneck layer"
@@ -635,7 +727,31 @@ def my_splitter_bt_last_block_resnet50(m):
     final_block_and_projector = sequential(m.encoder[-3][-1], m.projector)
     return L(enc_except_final_block, final_block_and_projector).map(params)
 
-# %% ../nbs/base_model.ipynb 25
+# %% ../nbs/base_model.ipynb 26
+def my_splitter_vicreg(m):
+    encoders = L(m.encoder1, m.encoder2).map(params)
+    projectors = L(m.projector1, m.projector2).map(params)
+    
+    # If encoder1 and encoder2 are the same object, we only want to include it once
+    if m.encoder1 is m.encoder2:
+        encoders = encoders[:1]
+    
+    # If projector1 and projector2 are the same object, we only want to include it once
+    if m.projector1 is m.projector2:
+        projectors = projectors[:1]
+    
+    return encoders + projectors
+
+#| export
+def get_vicreg_splitter(shared_encoder=True, shared_projector=True):
+    def splitter(m):
+        if shared_encoder and shared_projector:
+            return my_splitter_bt(m)  # Use the original Barlow Twins splitter
+        else:
+            return my_splitter_vicreg(m)
+    return splitter
+
+# %% ../nbs/base_model.ipynb 28
 def show_bt_batch(dls,n_in,aug,n=2,print_augs=True):
     "Given a linear learner, show a batch"
         
@@ -647,7 +763,7 @@ def show_bt_batch(dls,n_in,aug,n=2,print_augs=True):
     learn('before_batch')
     axes = learn.barlow_twins.show(n=n)
 
-# %% ../nbs/base_model.ipynb 26
+# %% ../nbs/base_model.ipynb 29
 class SaveBarlowLearnerCheckpoint(Callback):
     "Save such that can resume training "
     def __init__(self, experiment_dir,start_epoch=0, save_interval=250,with_opt=True):
@@ -682,7 +798,7 @@ class SaveBarlowLearnerModel(Callback):
         print(f"encoder state dict saved to {encoder_path}")
 
 
-# %% ../nbs/base_model.ipynb 27
+# %% ../nbs/base_model.ipynb 30
 def load_barlow_model(arch,ps,hs,path):
 
     encoder = resnet_arch_to_encoder(arch=arch, weight_type='random')
@@ -694,7 +810,7 @@ def load_barlow_model(arch,ps,hs,path):
 
     
 
-# %% ../nbs/base_model.ipynb 28
+# %% ../nbs/base_model.ipynb 31
 class BarlowTrainer:
     "Setup a learner for training a BT model. Can do transfer learning, normal training, or resume training."
 
@@ -826,6 +942,51 @@ class BarlowTrainer:
 
 
 # %% ../nbs/base_model.ipynb 33
+@patch
+class VICRegTrainer(BarlowTrainer):
+    def __init__(self,
+                 model,
+                 dls,
+                 bt_aug_pipelines,
+                 sim_coeff,
+                 std_coeff,
+                 cov_coeff,
+                 n_in,
+                 model_type,
+                 wd,
+                 device,
+                 split_images=False,
+                 shared_encoder=True,
+                 shared_projector=True,
+                 num_it=100,
+                 load_learner_path=None,
+                 experiment_dir=None,
+                 start_epoch=0,
+                 save_interval=None,
+                 export=False):
+        
+        super().__init__(model, dls, bt_aug_pipelines, None, None, n_in, model_type,
+                         wd, device, 'vicreg', num_it, load_learner_path,
+                         experiment_dir, start_epoch, save_interval, export)
+        
+        store_attr('sim_coeff,std_coeff,cov_coeff,split_images,shared_encoder,shared_projector')
+        self.splitter = get_vicreg_splitter(shared_encoder, shared_projector)
+
+    def setup_learn(self):
+        self.model.to(self.device)
+
+        cbs = [VICReg(self.bt_aug_pipelines, n_in=self.n_in, 
+                      sim_coeff=self.sim_coeff, std_coeff=self.std_coeff, cov_coeff=self.cov_coeff,
+                      model_type=self.model_type, print_augs=False, split_images=self.split_images)]
+
+        learn = Learner(self.dls, self.model, splitter=self.splitter, wd=self.wd, cbs=cbs)
+        
+        if self.load_learner_path: 
+            learn.load(self.load_learner_path, with_opt=True)
+
+        return learn
+
+# %% ../nbs/base_model.ipynb 39
 def main_bt_train(config,
         start_epoch = 0,
         interrupt_epoch = 100,
@@ -890,7 +1051,7 @@ def main_bt_train(config,
     return learn
 
 
-# %% ../nbs/base_model.ipynb 35
+# %% ../nbs/base_model.ipynb 41
 def get_bt_experiment_state(config,base_dir):
     """Get the load_learner_path, learn_type, start_epoch, interrupt_epoch for BT experiment.
        Basically this tells us how to continue learning (e.g. we have run two sessions for 
@@ -921,7 +1082,7 @@ def get_bt_experiment_state(config,base_dir):
 
     return load_learner_path, learn_type, start_epoch, interrupt_epoch
 
-# %% ../nbs/base_model.ipynb 36
+# %% ../nbs/base_model.ipynb 42
 def main_bt_experiment(config,
                       base_dir,
                       ):
