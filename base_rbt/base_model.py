@@ -5,11 +5,10 @@ __all__ = ['IMAGENET_Augs', 'DERMNET_Augs', 'bt_aug_func_dict', 'RandomGaussianB
            'get_multi_aug_pipelines', 'get_barlow_twins_aug_pipelines', 'get_bt_cifar10_aug_pipelines',
            'helper_get_bt_augs', 'get_bt_imagenet_aug_pipelines', 'get_bt_dermnet_aug_pipelines',
            'get_bt_aug_pipelines', 'get_ssl_dls', 'BarlowTwinsModel', 'create_barlow_twins_model', 'BarlowTwins',
-           'VICRegModel', 'create_vicreg_model', 'VICReg', 'lf_bt', 'lf_bt_sparse_head', 'lf_bt_indiv_sparse',
-           'lf_bt_group_sparse', 'lf_bt_group_norm_sparse', 'lf_bt_fun', 'lf_bt_proj_group_sparse', 'my_splitter_bt',
-           'my_splitter_bt_last_block_resnet50', 'my_splitter_vicreg', 'get_vicreg_splitter', 'show_bt_batch',
-           'SaveBarlowLearnerCheckpoint', 'SaveBarlowLearnerModel', 'load_barlow_model', 'BarlowTrainer',
-           'main_bt_train', 'get_bt_experiment_state', 'main_bt_experiment']
+           'lf_bt', 'lf_bt_sparse_head', 'lf_bt_indiv_sparse', 'lf_bt_group_sparse', 'lf_bt_group_norm_sparse',
+           'lf_bt_fun', 'lf_bt_proj_group_sparse', 'my_splitter_bt', 'my_splitter_bt_last_block_resnet50',
+           'show_bt_batch', 'SaveBarlowLearnerCheckpoint', 'SaveBarlowLearnerModel', 'load_barlow_model',
+           'BarlowTrainer', 'main_bt_train', 'get_bt_experiment_state', 'main_bt_experiment']
 
 # %% ../nbs/base_model.ipynb 3
 import importlib
@@ -372,97 +371,6 @@ class BarlowTwins(Callback):
         for i in range(n): images += [x1[i],x2[i]]
         return show_batch(x1[0], None, images, max_n=len(images), nrows=n)
 
-# %% ../nbs/base_model.ipynb 12
-# Base functions / classes we need to train a VICReg model
-class VICRegModel(Module):
-    """VICReg model with options for shared or separate projectors"""
-    def __init__(self, encoder1, encoder2, projector1, projector2=None):
-        self.encoder1 = encoder1
-        self.encoder2 = encoder2
-        self.projector1 = projector1
-        self.projector2 = projector2 if projector2 is not None else projector1
-        
-    def forward(self, x1, x2): 
-        z1 = self.projector1(self.encoder1(x1))
-        z2 = self.projector2(self.encoder2(x2))
-        return (z1, z2)
-
-def create_vicreg_model(encoder1, encoder2, hidden_size=256, projection_size=128, bn=True, nlayers=3, shared_projector=True):
-    """
-    Create VICReg model with flexible projector configuration
-    
-    Args:
-    - encoder1: first encoder model
-    - encoder2: second encoder model (can be the same as encoder1 for shared encoder)
-    - hidden_size: hidden size for projector
-    - projection_size: output size for projector
-    - bn: whether to use batch normalization in projector
-    - nlayers: number of layers in projector
-    - shared_projector: if True, use the same projector for both branches
-    """
-    n_in = in_channels(encoder1)
-    with torch.no_grad(): representation = encoder1(torch.randn((2,n_in,128,128)))
-    
-    projector1 = create_mlp_module(representation.size(1), hidden_size, projection_size, bn=bn, nlayers=nlayers)
-    apply_init(projector1)
-    
-    if not shared_projector:
-        projector2 = create_mlp_module(representation.size(1), hidden_size, projection_size, bn=bn, nlayers=nlayers)
-        apply_init(projector2)
-    else:
-        projector2 = None
-    
-    return VICRegModel(encoder1, encoder2, projector1, projector2)
-
-# VICReg callback inheriting from BarlowTwins
-class VICReg(BarlowTwins):
-    def __init__(self, aug_pipelines, n_in, sim_coeff=25, std_coeff=25, cov_coeff=1, 
-                 model_type='vicreg', print_augs=False):
-        super().__init__(aug_pipelines, n_in, None, None, model_type, print_augs)
-        # New VICReg-specific attributes
-        self.sim_coeff = sim_coeff
-        self.std_coeff = std_coeff
-        self.cov_coeff = cov_coeff
-
-    def before_fit(self):
-        self.learn.loss_func = self.lf
-        # Remove the identity matrix initialization as it's not needed for VICReg
-
-    def before_batch(self):
-        # Split the image into left and right halves
-        #will need to verify correctness here.
-        if self.n_in == 1:
-            x_left = TensorImageBW(self.x[..., :self.x.shape[-1]//2])
-            x_right = TensorImageBW(self.x[..., self.x.shape[-1]//2:])
-        elif self.n_in == 3:
-            x_left = TensorImage(self.x[..., :self.x.shape[-1]//2])
-            x_right = TensorImage(self.x[..., self.x.shape[-1]//2:])
-
-        xi, xj = self.aug1(x_left), self.aug2(x_right)
-        self.learn.xb = (xi, xj)  # Pass as separate tensors, not concatenated
-
-        self.index += 1
-
-    # New method for VICReg loss calculation
-    def vicreg_loss(self,z1, z2):
-        pass
-
-    def lf(self, pred, *yb):
-        (z1, z2) = pred
-        return self.vicreg_loss(z1, z2)
-
-    @torch.no_grad()
-    def show(self, n=1):
-        # Adjusted to handle split images
-        bs = self.learn.x.size(0)
-        x_left, x_right = self.learn.x[..., :self.x.shape[-1]//2], self.learn.x[..., self.x.shape[-1]//2:]
-        idxs = np.random.choice(range(bs), n, False)
-        x1 = self.aug1.decode(x_left[idxs].to('cpu').clone()).clamp(0,1)
-        x2 = self.aug2.decode(x_right[idxs].to('cpu').clone()).clamp(0,1)
-        images = []
-        for i in range(n): images += [x1[i], x2[i]]
-        return show_batch(x1[0], None, images, max_n=len(images), nrows=n)
-
 # %% ../nbs/base_model.ipynb 13
 #We want access to both representation and projection
 
@@ -727,30 +635,6 @@ def my_splitter_bt_last_block_resnet50(m):
     final_block_and_projector = sequential(m.encoder[-3][-1], m.projector)
     return L(enc_except_final_block, final_block_and_projector).map(params)
 
-# %% ../nbs/base_model.ipynb 26
-def my_splitter_vicreg(m):
-    encoders = L(m.encoder1, m.encoder2).map(params)
-    projectors = L(m.projector1, m.projector2).map(params)
-    
-    # If encoder1 and encoder2 are the same object, we only want to include it once
-    if m.encoder1 is m.encoder2:
-        encoders = encoders[:1]
-    
-    # If projector1 and projector2 are the same object, we only want to include it once
-    if m.projector1 is m.projector2:
-        projectors = projectors[:1]
-    
-    return encoders + projectors
-
-#| export
-def get_vicreg_splitter(shared_encoder=True, shared_projector=True):
-    def splitter(m):
-        if shared_encoder and shared_projector:
-            return my_splitter_bt(m)  # Use the original Barlow Twins splitter
-        else:
-            return my_splitter_vicreg(m)
-    return splitter
-
 # %% ../nbs/base_model.ipynb 28
 def show_bt_batch(dls,n_in,aug,n=2,print_augs=True):
     "Given a linear learner, show a batch"
@@ -940,51 +824,6 @@ class BarlowTrainer:
 
         return self.learn
 
-
-# %% ../nbs/base_model.ipynb 33
-@patch
-class VICRegTrainer(BarlowTrainer):
-    def __init__(self,
-                 model,
-                 dls,
-                 bt_aug_pipelines,
-                 sim_coeff,
-                 std_coeff,
-                 cov_coeff,
-                 n_in,
-                 model_type,
-                 wd,
-                 device,
-                 split_images=False,
-                 shared_encoder=True,
-                 shared_projector=True,
-                 num_it=100,
-                 load_learner_path=None,
-                 experiment_dir=None,
-                 start_epoch=0,
-                 save_interval=None,
-                 export=False):
-        
-        super().__init__(model, dls, bt_aug_pipelines, None, None, n_in, model_type,
-                         wd, device, 'vicreg', num_it, load_learner_path,
-                         experiment_dir, start_epoch, save_interval, export)
-        
-        store_attr('sim_coeff,std_coeff,cov_coeff,split_images,shared_encoder,shared_projector')
-        self.splitter = get_vicreg_splitter(shared_encoder, shared_projector)
-
-    def setup_learn(self):
-        self.model.to(self.device)
-
-        cbs = [VICReg(self.bt_aug_pipelines, n_in=self.n_in, 
-                      sim_coeff=self.sim_coeff, std_coeff=self.std_coeff, cov_coeff=self.cov_coeff,
-                      model_type=self.model_type, print_augs=False, split_images=self.split_images)]
-
-        learn = Learner(self.dls, self.model, splitter=self.splitter, wd=self.wd, cbs=cbs)
-        
-        if self.load_learner_path: 
-            learn.load(self.load_learner_path, with_opt=True)
-
-        return learn
 
 # %% ../nbs/base_model.ipynb 39
 def main_bt_train(config,
