@@ -1,5 +1,5 @@
 dataset: cifar10
-arch: smallres
+arch: resnet18
 train_type: SSL #which train type we will perform: SSL or supervised
 weight_type: random #random, imgnet_bt_pretrained,imgnet_sup_pretrained
 size: 32 #size of the image
@@ -15,6 +15,5 @@ wd: 0.0000015 #1.5*1e-6 which is the deault in the paper. We may have to ablate 
 freeze_epochs: none
 num_it: 100
 pct_dataset: 1.0
-epochs: 12  #number of epochs to train BT variant
-save_interval: 6
-
+epochs: 10  #number of epochs to train BT variant
+save_interval: 5
