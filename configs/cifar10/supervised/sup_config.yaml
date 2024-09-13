@@ -15,4 +15,4 @@ pct_dataset_train: 1.0 #may set to 0.01, 0.1, 1.0 e.g. for isic dataset
 pct_dataset_test: 1.0  #generally this is 1.0 outside of testing code
 epochs: 100  # epochs to train BT variant
 num_runs: 5 #Number of runs to perform
-load_pretrained_path: /content/drive/MyDrive/Experiments/barlow_twins/SSL/cifar10/resnet18/0f2e6786/learner_checkpoint_epoch_499.pth
+load_pretrained_path: /content/drive/MyDrive/Experiments/barlow_twins/SSL/cifar10/resnet18/0f2e6786/trained_encoder_epoch_499.pth
