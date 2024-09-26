@@ -604,7 +604,7 @@ class VICReg(BarlowTwins):
             self.learn.xb = (torch.cat([xi, xj], dim=0),)
 
 
-# %% ../nbs/base_model.ipynb 15
+# %% ../nbs/base_model.ipynb 14
 def lf_bt(pred,I,lmb): #standard bt loss
     bs,nf = pred.size(0)//2,pred.size(1)
     
@@ -618,7 +618,7 @@ def lf_bt(pred,I,lmb): #standard bt loss
     loss = (cdiff*I + cdiff*(1-I)*lmb).sum() 
     return loss
 
-# %% ../nbs/base_model.ipynb 16
+# %% ../nbs/base_model.ipynb 15
 def lf_bt_sparse_head(pred,I,lmb,projector,sparsity_level):
   
     bt_loss = lf_bt(pred,I,lmb)
@@ -633,7 +633,7 @@ def lf_bt_sparse_head(pred,I,lmb,projector,sparsity_level):
  
     return loss
 
-# %% ../nbs/base_model.ipynb 17
+# %% ../nbs/base_model.ipynb 16
 def lf_bt_indiv_sparse(pred,I,lmb,sparsity_level,
                       ):
 
@@ -666,7 +666,7 @@ def lf_bt_indiv_sparse(pred,I,lmb,sparsity_level,
     
 
 
-# %% ../nbs/base_model.ipynb 18
+# %% ../nbs/base_model.ipynb 17
 def lf_bt_group_sparse(pred,I,lmb,sparsity_level,
                       ):
 
@@ -696,7 +696,7 @@ def lf_bt_group_sparse(pred,I,lmb,sparsity_level,
     torch.cuda.empty_cache()
     return loss
 
-# %% ../nbs/base_model.ipynb 19
+# %% ../nbs/base_model.ipynb 18
 def lf_bt_group_norm_sparse(pred,I,lmb,sparsity_level,
                       ):
 
@@ -730,7 +730,7 @@ def lf_bt_group_norm_sparse(pred,I,lmb,sparsity_level,
     torch.cuda.empty_cache()
     return loss
 
-# %% ../nbs/base_model.ipynb 20
+# %% ../nbs/base_model.ipynb 19
 def lf_bt_fun(pred,I,lmb,sparsity_level,
                       ):
 
@@ -764,7 +764,7 @@ def lf_bt_fun(pred,I,lmb,sparsity_level,
     torch.cuda.empty_cache()
     return loss
 
-# %% ../nbs/base_model.ipynb 21
+# %% ../nbs/base_model.ipynb 20
 def lf_bt_proj_group_sparse(pred,I,lmb,sparsity_level,
                            ):
 
@@ -792,7 +792,7 @@ def lf_bt_proj_group_sparse(pred,I,lmb,sparsity_level,
     torch.cuda.empty_cache()
     return loss
 
-# %% ../nbs/base_model.ipynb 23
+# %% ../nbs/base_model.ipynb 22
 @patch
 def lf(self:BarlowTwins, pred,*yb):
     "Assumes model created according to type p3"
@@ -827,11 +827,11 @@ def lf(self:BarlowTwins, pred,*yb):
 
     else: raise(Exception)
 
-# %% ../nbs/base_model.ipynb 24
+# %% ../nbs/base_model.ipynb 23
 def my_splitter_bt(m):
     return L(sequential(*m.encoder),m.projector).map(params)
 
-# %% ../nbs/base_model.ipynb 25
+# %% ../nbs/base_model.ipynb 24
 def my_splitter_bt_last_block_resnet50(m):
     #Note: don't think we actually need this guy.
     "Freeze all but the last bottleneck layer"
@@ -839,7 +839,7 @@ def my_splitter_bt_last_block_resnet50(m):
     final_block_and_projector = sequential(m.encoder[-3][-1], m.projector)
     return L(enc_except_final_block, final_block_and_projector).map(params)
 
-# %% ../nbs/base_model.ipynb 27
+# %% ../nbs/base_model.ipynb 26
 def show_bt_batch(dls,n_in,aug,n=2,print_augs=True):
     "Given a linear learner, show a batch"
         
@@ -861,7 +861,7 @@ def show_vicreg_batch(dls,n_in,aug,n=2,print_augs=True,model_type='vicreg'):
     axes = learn.vic_reg.show(n=n)
 
 
-# %% ../nbs/base_model.ipynb 29
+# %% ../nbs/base_model.ipynb 28
 class SaveBarlowLearnerCheckpoint(Callback):
     "Save such that can resume training "
     def __init__(self, experiment_dir,start_epoch=0, save_interval=250,with_opt=True):
@@ -918,7 +918,7 @@ class SaveVicRegLearnerModel(Callback):
 
 
 
-# %% ../nbs/base_model.ipynb 30
+# %% ../nbs/base_model.ipynb 29
 def load_barlow_model(arch,ps,hs,path):
 
     encoder = resnet_arch_to_encoder(arch=arch, weight_type='random')
@@ -937,7 +937,7 @@ def load_vicreg_model(arch,ps,hs,path):
 
 
 
-# %% ../nbs/base_model.ipynb 31
+# %% ../nbs/base_model.ipynb 30
 class BarlowTrainer:
     "Setup a learner for training a BT model. Can do transfer learning, normal training, or resume training."
 
@@ -1068,7 +1068,7 @@ class BarlowTrainer:
         return self.learn
 
 
-# %% ../nbs/base_model.ipynb 33
+# %% ../nbs/base_model.ipynb 32
 class VICRegTrainer(BarlowTrainer):
     def __init__(self,
                  model,
@@ -1153,7 +1153,7 @@ class VICRegTrainer(BarlowTrainer):
     #     # You can customize this method for VICReg-specific training logic if needed
     #     return super().train(learn_type, freeze_epochs, epochs, start_epoch, interrupt_epoch)
 
-# %% ../nbs/base_model.ipynb 38
+# %% ../nbs/base_model.ipynb 37
 def main_bt_train(config,
         start_epoch = 0,
         interrupt_epoch = 100,
@@ -1218,7 +1218,7 @@ def main_bt_train(config,
     return learn
 
 
-# %% ../nbs/base_model.ipynb 40
+# %% ../nbs/base_model.ipynb 39
 def main_vicreg_train(config,
         start_epoch = 0,
         interrupt_epoch = 100,
@@ -1308,7 +1308,7 @@ def main_vicreg_train(config,
     return learn
 
 
-# %% ../nbs/base_model.ipynb 41
+# %% ../nbs/base_model.ipynb 40
 def get_bt_experiment_state(config,base_dir):
     """Get the load_learner_path, learn_type, start_epoch, interrupt_epoch for BT experiment.
        Basically this tells us how to continue learning (e.g. we have run two sessions for 
@@ -1339,7 +1339,7 @@ def get_bt_experiment_state(config,base_dir):
 
     return load_learner_path, learn_type, start_epoch, interrupt_epoch
 
-# %% ../nbs/base_model.ipynb 42
+# %% ../nbs/base_model.ipynb 41
 def main_bt_experiment(config,
                       base_dir,
                       ):
@@ -1349,7 +1349,6 @@ def main_bt_experiment(config,
     
         
         experiment_dir, experiment_hash,git_commit_hash = setup_experiment(config,base_dir)
-
         load_learner_path, learn_type, start_epoch, interrupt_epoch = get_bt_experiment_state(config,base_dir)      
         
         if 'barlow' in config.model_type:
