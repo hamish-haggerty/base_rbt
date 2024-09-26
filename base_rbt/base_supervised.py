@@ -24,14 +24,36 @@ from .metrics import *
 
 # %% ../nbs/base_supervised.ipynb 5
 #Batch level augmentations for linear classifier. At present time, just RandomResizedCrop and Normalization.
-def get_linear_batch_augs(size,resize=True,
-                    resize_scale=(0.08, 1.0),resize_ratio=(3/4, 4/3),
-                    stats=None,cuda=default_device().type == 'cuda',xtra_tfms=[]):
+# def get_linear_batch_augs(size,resize=True,
+#                     resize_scale=(0.08, 1.0),resize_ratio=(3/4, 4/3),
+#                     stats=None,cuda=default_device().type == 'cuda',xtra_tfms=[]):
+    
+#     "Input batch augmentations implemented in tv+kornia+fastai"
+#     tfms = []
+#     if resize:tfms += [tvtfm.RandomResizedCrop((size, size), scale=resize_scale, ratio=resize_ratio)]
+#     if stats is not None: tfms += [Normalize.from_stats(*stats, cuda=cuda)]
+#     tfms += xtra_tfms
+#     pipe = Pipeline(tfms, split_idx = 0)
+#     return pipe
+
+def get_linear_batch_augs(size,
+                          resize=True,
+                          flip=True,
+                          flip_prob=0.5,
+                          resize_scale=(0.08, 1.0),
+                          resize_ratio=(3/4, 4/3),
+                          stats=None,
+                          cuda=default_device().type == 'cuda',
+                          xtra_tfms=[]):
     
     "Input batch augmentations implemented in tv+kornia+fastai"
     tfms = []
-    if resize:tfms += [tvtfm.RandomResizedCrop((size, size), scale=resize_scale, ratio=resize_ratio)]
-    if stats is not None: tfms += [Normalize.from_stats(*stats, cuda=cuda)]
+    if resize:
+        tfms += [tvtfm.RandomResizedCrop((size, size), scale=resize_scale, ratio=resize_ratio)]
+    if flip:
+        tfms += [tvtfm.RandomHorizontalFlip(p=flip_prob)]
+    if stats is not None:
+        tfms += [Normalize.from_stats(*stats, cuda=cuda)]
     tfms += xtra_tfms
     pipe = Pipeline(tfms, split_idx = 0)
     return pipe
@@ -223,9 +245,14 @@ def get_supervised_dls(dataset,
 
 # %% ../nbs/base_supervised.ipynb 16
 def get_supervised_cifar10_augmentations(size):
-
-    return get_linear_batch_augs(size=size,resize=True,resize_scale=(0.3,1.0),stats=cifar_stats)
-
+    return get_linear_batch_augs(
+        size=size,
+        resize=True,
+        flip=True,
+        flip_prob=0.5,
+        resize_scale=(0.2, 1.0),
+        stats=cifar_stats
+    )
 
 def get_supervised_isic_augmentations(size):
 
@@ -395,6 +422,8 @@ def save_metrics(model, #trained model
                  num_run, #how to name metrics files 
                  dls_train, #just used to compute vocab
                  dls_test, #test set
+                 numavg=3,
+                 deterministic_test=False,
                  ):
     
         #Save this in experiment_dir also
@@ -402,7 +431,7 @@ def save_metrics(model, #trained model
     int_to_classes = {i: v for i, v in enumerate(dls_train.vocab)}
     vocab=dls_train.vocab    
 
-    metrics = get_dls_metrics(dls_test,model,aug_pipelines_supervised,int_to_classes)
+    metrics = get_dls_metrics(dls_test,model,aug_pipelines_supervised,int_to_classes,numavg,deterministic_test=deterministic_test)
     metrics['classes_to_int'] = classes_to_int
     metrics['int_to_classes'] = int_to_classes
     metrics['vocab'] = vocab
@@ -490,7 +519,17 @@ def main_sup_train(config,
     #compute metrics and save
     if test:
         print('computing metrics')
-        metrics = save_metrics(model, aug_pipelines_supervised, experiment_dir, num_run, dls_train, dls_test)
+
+        #for backwards compatibility with old configs. We just had numavg =3 
+        #in the past. 
+        try: 
+            numavg = config.numavg
+            deterministic_test = config.deterministic_test
+        except AttributeError:
+            numavg = 3
+            deterministic_test = False
+
+        metrics = save_metrics(model, aug_pipelines_supervised, experiment_dir, num_run, dls_train, dls_test,numavg=numavg,deterministic_test=deterministic_test)
     else:
         metrics=None
 

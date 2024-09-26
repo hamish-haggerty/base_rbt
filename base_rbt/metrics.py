@@ -23,37 +23,27 @@ from tqdm.auto import tqdm
 
 # %% ../nbs/metrics.ipynb 5
 @torch.no_grad()
-def predict_model(xval,yval,model,aug_pipelines_test,numavg=3,criterion = CrossEntropyLossFlat(),deterministic=False):
+def predict_model(xval, yval, model, aug_pipelines_test, numavg=3, criterion=CrossEntropyLossFlat(), deterministic_test=False):
     "Note that this assumes xval is entire validation set. If it doesn't fit in memory, can't use this guy"
     
     model.eval()
-
-    N=xval.shape[0]
+    N = xval.shape[0]
     
-    if not deterministic:
-
-        probs=0
+    if not deterministic_test:
+        test_eq(numavg>1,True) #otherwise it makes no sense right?
+        probs = 0
         for _ in range(numavg):
-
-            probs += torch.softmax(model(aug_pipelines_test[0](xval)),dim=1) #test time augmentation. This also gets around issue of randomness in the dataloader in each session...
-
+            probs += torch.softmax(model(aug_pipelines_test[0](xval)), dim=1)
         probs *= 1/numavg
-        
     else:
-        probs = torch.softmax(model(xval),dim=1)
-
+        probs = torch.softmax(model(xval), dim=1)
     
-    ypred = cast(torch.argmax(probs, dim=1),TensorCategory)
-
-    correct = (ypred == yval)#.type(torch.FloatTensor)
-
-    #correct = (torch.argmax(ypred,dim=1) == yval).type(torch.FloatTensor)
+    ypred = cast(torch.argmax(probs, dim=1), TensorCategory)
+    correct = (ypred == yval)
     num_correct = correct.sum()
-    accuracy = num_correct/N
-
-    #val_loss = criterion(scores,yval)
+    accuracy = num_correct / N
     
-    return probs,ypred,accuracy.item()#,val_loss.item()
+    return probs, ypred, accuracy.item()
 
 # %% ../nbs/metrics.ipynb 6
 def predict_ensemble(yval,scores1,scores2):
@@ -434,7 +424,7 @@ def Pr_Dict(ytest,probs,int_to_classes=None):
 
 # %% ../nbs/metrics.ipynb 17
 @torch.no_grad()
-def predict_whole_model(dls_test, model, aug_pipelines_test, numavg=3, criterion=CrossEntropyLossFlat(), deterministic=False):
+def predict_whole_model(dls_test, model, aug_pipelines_test, numavg=3,deterministic_test=False, criterion=CrossEntropyLossFlat(), deterministic=False):
     """
     Predicts the labels and probabilities for the entire test set using the specified model and data augmentation pipelines.
     Returns a dictionary containing the labels, probabilities, predicted labels, and accuracy.
@@ -460,7 +450,7 @@ def predict_whole_model(dls_test, model, aug_pipelines_test, numavg=3, criterion
     progress_bar = tqdm(dls_test.train, desc="Predicting", unit="batch")
     for xval, yval in progress_bar:
         end_idx = start_idx + len(xval)
-        _probs, _ypred, acc = predict_model(xval, yval, model, aug_pipelines_test, numavg, criterion, deterministic)
+        _probs, _ypred, acc = predict_model(xval, yval, model, aug_pipelines_test, numavg, criterion, deterministic_test=deterministic_test)
         y[start_idx:end_idx] = yval
         probs[start_idx:end_idx] = _probs
         ypred[start_idx:end_idx] = _ypred
@@ -473,11 +463,12 @@ def predict_whole_model(dls_test, model, aug_pipelines_test, numavg=3, criterion
     #return {'y': y, 'probs': probs, 'ypred': ypred, 'acc': acc}
     return y, probs, ypred, acc
 
-def get_dls_metrics(dls,model,aug_pipelines_test,int_to_classes): #note that we can't call dls.vocab as it might be smaller on the test set
+def get_dls_metrics(dls,model,aug_pipelines_test,int_to_classes,numavg=3,deterministic_test=False): #note that we can't call dls.vocab as it might be smaller on the test set
     "get metrics from model and dataloader"
 
+
     print('running `predict_whole_model`')
-    ytest,probs,preds,Acc = predict_whole_model(dls,model,aug_pipelines_test,numavg=3)
+    ytest,probs,preds,Acc = predict_whole_model(dls,model,aug_pipelines_test,numavg=numavg,deterministic_test=deterministic_test)
     metrics = classification_report_wrapper(preds, ytest,int_to_classes, print_report=True)
     
     plot_roc(ytest,probs,int_to_classes)
@@ -499,7 +490,7 @@ def get_dls_metrics(dls,model,aug_pipelines_test,int_to_classes): #note that we 
 def get_xval_metrics(xval,yval,model,aug_pipelines_test,int_to_classes,numavg=3): #note that we can't call dls.vocab as it might be smaller on the test set
     "get metrics from gives batch (xval,yval)"
 
-    probs,preds,Acc = predict_model(xval,yval,model,aug_pipelines_test,numavg=3)
+    probs,preds,Acc = predict_model(xval,yval,model,aug_pipelines_test,numavg=numavg,deterministic_test=deterministic_test)
     metrics = classification_report_wrapper(preds, yval,int_to_classes, print_report=True)
     metrics['acc']=Acc
 

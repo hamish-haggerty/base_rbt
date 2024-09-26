@@ -2,7 +2,8 @@
 
 # %% auto 0
 __all__ = ['PACKAGE_NAME', 'test_grad_on', 'test_grad_off', 'seed_everything', 'adjust_config_with_derived_values', 'load_config',
-           'pretty_print_ns', 'get_resnet_encoder', 'resnet_arch_to_encoder', 'generate_config_hash',
+           'pretty_print_ns', 'get_resnet_encoder', 'get_cifar_resnet18', 'resnet_arch_to_encoder',
+           'share_resnet_parameters', 'test_resnet_parameter_sharing_with_training', 'generate_config_hash',
            'create_experiment_directory', 'save_configuration', 'save_metadata_file', 'update_experiment_index',
            'get_latest_commit_hash', 'setup_experiment', 'InterruptCallback', 'SaveLearnerCheckpoint', 'extract_number',
            'find_largest_file', 'return_max_filename', 'get_highest_num_path', 'save_dict_to_gdrive',
@@ -30,6 +31,8 @@ import re
 import sys
 import os
 import zipfile
+import torch.nn as nn
+import torch.optim as optim
 
 # %% ../nbs/utils.ipynb 4
 # cfg = config.get_config()
@@ -93,6 +96,10 @@ def adjust_config_with_derived_values(config):
     for key, value in list(config.__dict__.items()): 
         if value == 'none':
             config.__dict__[key] = None
+        if value == 'True':
+            config.__dict__[key] = True
+        if value == 'False':
+            config.__dict__[key] = False
 
     return config
 
@@ -152,75 +159,124 @@ class _SmallRes(nn.Module):
         return x
 
 
-# %% ../nbs/utils.ipynb 11
+# %% ../nbs/utils.ipynb 12
+# import torch
+# import torch.nn as nn
+# from torchvision.models import resnet18, resnet34, resnet50
+# from torchvision.models.resnet import ResNet18_Weights, ResNet34_Weights, ResNet50_Weights
+# from typing import Literal
+
 @torch.no_grad()
-def get_resnet_encoder(model,n_in=3):
+def get_resnet_encoder(model, n_in=3):
     model = create_body(model, n_in=n_in, pretrained=False, cut=len(list(model.children()))-1)
     model.add_module('flatten', torch.nn.Flatten())
     return model
 
+#helper function
+def get_cifar_resnet18(model):
+    """Modifies a ResNet18 model for CIFAR-10."""
+    model.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+    model.maxpool = nn.Identity()
+    return model
+
 @torch.no_grad()
-def resnet_arch_to_encoder(arch: Literal['smallres','resnet18', 'resnet34', 'resnet50'],
-                           weight_type: Literal['random', 'imgnet_bt_pretrained', 'imgnet_sup_pretrained',
-                                               'dermnet_bt_pretrained','imgnet_bt_dermnet_bt_pretrained'] = 'random'):
-    """Given a ResNet architecture, return the encoder configured for 3 input channels.
-       The 'weight_type' argument specifies the weight initialization strategy.
+def resnet_arch_to_encoder(
+    arch: Literal['smallres', 'resnet18', 'resnet34', 'resnet50', 'cifar_resnet18'],
+    weight_type: Literal['random', 'imgnet_bt_pretrained', 'imgnet_sup_pretrained',
+                         'dermnet_bt_pretrained', 'imgnet_bt_dermnet_bt_pretrained', 'cifar10_pretrained'] = 'random'
+                          ):
+    """
+    Given a ResNet architecture, return the encoder configured for 3 input channels.
+    The 'weight_type' argument specifies the weight initialization strategy.
 
     Args:
-        arch (Literal['smallres','resnet18', 'resnet34', 'resnet50']): The architecture of the ResNet.
-        weight_type (Literal['random', 'imgnet_bt_pretrained', 'imgnet_bt_dermnet_bt_pretrained','imgnet_sup_pretrained','imgnet_bt_ufes_bt_pretrained']): Specifies the weight initialization strategy. Defaults to 'random'.
+        arch: The architecture of the ResNet.
+        weight_type: Specifies the weight initialization strategy. Defaults to 'random'.
 
     Returns:
         Encoder: An encoder configured for 3 input channels and specified architecture.
     """
-    
-    n_in=3
+    n_in = 3
 
-    if weight_type == 'imgnet_bt_pretrained': test_eq(arch,'resnet50')
+    if weight_type == 'imgnet_bt_pretrained': 
+        assert arch == 'resnet50', "ImageNet Barlow Twins pretrained weights are only available for ResNet50"
     
     if arch == 'resnet50':
-
-        if  weight_type ==  'imgnet_bt_pretrained':
+        if weight_type == 'imgnet_bt_pretrained':
             _model = torch.hub.load('facebookresearch/barlowtwins:main', 'resnet50')
-
         elif weight_type == 'imgnet_sup_pretrained':
             _model = resnet50(weights=ResNet50_Weights.IMAGENET1K_V2)
-
-        else: #means we are loading state_dict from elsewhere
-            _model = resnet50() 
+        else:
+            _model = resnet50()
         
     elif arch == 'resnet34':
-
         if weight_type == 'imgnet_sup_pretrained':
             _model = resnet34(weights=ResNet34_Weights.IMAGENET1K_V1)
-
-        elif weight_type == 'random':
-            _model = resnet34() 
+        else:
+            _model = resnet34()
 
     elif arch == 'resnet18':
         if weight_type == 'imgnet_sup_pretrained':
-            _model = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1) 
-
-        elif weight_type == 'random':
+            _model = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
+        else:
             _model = resnet18()
 
-        elif weight_type == 'cifar10_pretrained':
-            _model = resnet18() #we load them in elsewhere
-
-
-    
+    elif arch == 'cifar_resnet18':
+        assert weight_type in ['random', 'cifar10_pretrained'], "CIFAR ResNet18 only supports 'random' or 'cifar10_pretrained' weight types"
+        _model = resnet18()
+        _model = get_cifar_resnet18(_model)  # Adjust ResNet18 for CIFAR-10
 
     elif arch == 'smallres':
         _model = _SmallRes()
     
-        
-    else: raise ValueError('Architecture not recognized')
+    else:
+        raise ValueError('Architecture not recognized')
 
-    return get_resnet_encoder(_model,n_in) 
+    return get_resnet_encoder(_model, n_in)
 
+# %% ../nbs/utils.ipynb 13
+def share_resnet_parameters(encoder_left, encoder_right):
+    """Just tested for resnet18. Share params up to and inc stage 1."""
+    for i in range(5):  # 0 to 4 inclusive
+        encoder_right[i] = encoder_left[i]
+    
+    return encoder_left, encoder_right
 
+def test_resnet_parameter_sharing_with_training(encoder_left, encoder_right):
+    # Previous tests
+    test_eq(encoder_left[0], encoder_right[0])
+    test_eq(encoder_left[4], encoder_right[4])
+    test_eq(encoder_left[4][0].conv1.weight.data, encoder_right[4][0].conv1.weight.data)
+    test_eq(encoder_left[5] is encoder_right[5], False)
+    
+    # Set up a simple optimization step
+    optimizer_left = optim.SGD(encoder_left.parameters(), lr=0.1)
+    optimizer_right = optim.SGD(encoder_right.parameters(), lr=0.1)
+    criterion = nn.MSELoss()
 
-# %% ../nbs/utils.ipynb 12
+    # Simulate a forward pass and backward pass
+    dummy_input = torch.randn(1, 3, 224, 224)
+    output_left = encoder_left(dummy_input)
+    output_right = encoder_right(dummy_input)
+    
+    target = torch.randn(output_left.shape)
+    loss_left = criterion(output_left, target)
+    loss_right = criterion(output_right, target)
+
+    optimizer_left.zero_grad()
+    optimizer_right.zero_grad()
+    loss_left.backward()
+    loss_right.backward()
+    optimizer_left.step()
+    optimizer_right.step()
+
+    # Check if parameters are still the same after update
+    test_eq(encoder_left[4][0].conv1.weight.data, encoder_right[4][0].conv1.weight.data)
+    
+    print("All tests passed, including parameter update check!")
+   
+
+# %% ../nbs/utils.ipynb 15
 def generate_config_hash(config):
     """
     Generates a unique hash for a given experiment configuration.
@@ -246,7 +302,7 @@ def generate_config_hash(config):
     return short_hash
 
 
-# %% ../nbs/utils.ipynb 15
+# %% ../nbs/utils.ipynb 18
 def create_experiment_directory(base_dir, config):
     # Generate a unique hash for the configuration
     unique_hash = generate_config_hash(config)
@@ -340,7 +396,7 @@ def setup_experiment(config,base_dir):
     return experiment_dir, experiment_hash,git_commit_hash
 
 
-# %% ../nbs/utils.ipynb 16
+# %% ../nbs/utils.ipynb 19
 class InterruptCallback(Callback):
     def __init__(self, interrupt_epoch):
         super().__init__()
@@ -369,7 +425,7 @@ class SaveLearnerCheckpoint(Callback):
             print(f"Checkpoint saved to {checkpoint_path}")
 
 
-# %% ../nbs/utils.ipynb 17
+# %% ../nbs/utils.ipynb 20
 def extract_number(filename):
     """Extract the number from end of  filename. e.g. `epoch`"""
     #pattern = re.compile(r"_epoch_(\d+)\.pt[h]?")
@@ -472,7 +528,7 @@ def get_highest_num_path(base_dir, config):
 
     
 
-# %% ../nbs/utils.ipynb 18
+# %% ../nbs/utils.ipynb 21
 def save_dict_to_gdrive(d,directory, filename):
     #e.g. directory='/content/drive/My Drive/random_initial_weights'
     filepath = directory + '/' + filename + '.pkl'
@@ -486,7 +542,7 @@ def load_dict_from_gdrive(directory,filename):
         d = pickle.load(f)
     return d
 
-# %% ../nbs/utils.ipynb 19
+# %% ../nbs/utils.ipynb 22
 def download_weights():
 
     # Define paths
