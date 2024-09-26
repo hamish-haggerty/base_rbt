@@ -80,18 +80,21 @@ def adjust_config_with_derived_values(config):
     # Adjust n_in based on dataset
 
     # Adjust encoder_dimension based on architecture
-        
+
+    #This is really just for backwards compatibility (old configs), we don't need it
     if config.arch == 'smallres':
         config.encoder_dimension = 512
     elif config.arch == 'resnet18':
         config.encoder_dimension = 512
+    elif config.arch == 'cifar_resnet18':
+        config.encoder_dimemsion = 512
     elif config.arch == 'resnet34':
         config.encoder_dimension = 512
     elif config.arch == 'resnet50':
         config.encoder_dimension = 2048
 
-    else :
-        raise ValueError(f"Architecture {config.arch} not supported")
+    # else :
+    #     raise ValueError(f"Architecture {config.arch} not supported")
 
     for key, value in list(config.__dict__.items()): 
         if value == 'none':

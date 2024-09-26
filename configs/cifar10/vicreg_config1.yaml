@@ -1,21 +1,21 @@
 dataset: cifar10
-arch: resnet18
+arch: cifar_resnet18
 train_type: SSL #which train type we will perform: SSL or supervised
 weight_type: random #random, imgnet_bt_pretrained,imgnet_sup_pretrained
 size: 32 #size of the image
 n_in: 3
-bs: 128 #batch size for training
-ps: 256  # size of projector dimension
-hs: 256  # size of hidden dimension
+bs: 256 #batch size for training
+ps: 1024  # size of projector dimension
+hs: 1024  # size of hidden dimension
 bt_augs: bt_cifar10_aug_pipelines # other options: bt_`dataset_name`_aug_pipelines
 model_type: vicreg  #or `br_vicreg`
-sim_coeff: 1.0
-std_coeff: 1.0
+sim_coeff: 25.0
+std_coeff: 25.0
 cov_coeff: 1.0
 shared_projector: True #same projector on both branches
 shared_encoder: True  #same encoder on both branches (standard siamese) or different (only applies to model_type: vicreg. for br_vicreg there's a custom arch used.)
 sparsity_level: none
-wd: 0.0000015 #1.5*1e-6 which is the deault in the paper. We may have to ablate as a control to our idea though
+wd:  0.0000015 #1.5*1e-6 which is the deault in the paper. We may have to ablate as a control to our idea though
 freeze_epochs: none
 num_it: 100
 pct_dataset: 1.0
