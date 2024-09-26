@@ -239,7 +239,7 @@ def resnet_arch_to_encoder(
 
 # %% ../nbs/utils.ipynb 13
 def share_resnet_parameters(encoder_left, encoder_right):
-    """Just tested for resnet18. Share params up to and inc stage 1."""
+    """Just tested for resnet18 or cifar_resnet18. Share params up to and inc stage 1."""
     for i in range(5):  # 0 to 4 inclusive
         encoder_right[i] = encoder_left[i]
     

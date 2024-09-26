@@ -8,8 +8,9 @@ __all__ = ['IMAGENET_Augs', 'DERMNET_Augs', 'bt_aug_func_dict', 'RandomGaussianB
            'VICRegModel', 'create_vicreg_model', 'off_diagonal', 'VICReg', 'lf_bt', 'lf_bt_sparse_head',
            'lf_bt_indiv_sparse', 'lf_bt_group_sparse', 'lf_bt_group_norm_sparse', 'lf_bt_fun',
            'lf_bt_proj_group_sparse', 'my_splitter_bt', 'my_splitter_bt_last_block_resnet50', 'show_bt_batch',
-           'show_vicreg_batch', 'SaveBarlowLearnerCheckpoint', 'SaveBarlowLearnerModel', 'load_barlow_model',
-           'BarlowTrainer', 'main_bt_train', 'main_vicreg_train', 'get_bt_experiment_state', 'main_bt_experiment']
+           'show_vicreg_batch', 'SaveBarlowLearnerCheckpoint', 'SaveBarlowLearnerModel', 'SaveVicRegLearnerModel',
+           'load_barlow_model', 'load_vicreg_model', 'BarlowTrainer', 'main_bt_train', 'main_vicreg_train',
+           'get_bt_experiment_state', 'main_bt_experiment']
 
 # %% ../nbs/base_model.ipynb 3
 import importlib
@@ -412,48 +413,48 @@ class BarlowTwins(Callback):
 #  model
 class VICRegModel(Module):
     """VICReg model with options for shared or separate projectors"""
-    def __init__(self, encoder1, encoder2, projector1, projector2):
-        #may have encoder2 = encoder1 and projector2 = projector1.
+    def __init__(self, left_encoder, right_encoder, left_projector, right_projector):
+        #may have right_encoder = encoder_left and right_projector = left_projector.
         #or e.g. encoders may have shared weights.
-        self.encoder1 = encoder1
-        self.encoder2 = encoder2
-        self.projector1 = projector1
-        self.projector2 = projector2
+        self.left_encoder = left_encoder
+        self.right_encoder = right_encoder
+        self.left_projector = left_projector
+        self.right_projector = right_projector
         
     def forward(self,x): #x is stacked xi,xj the two augmented views of batch
       
         x1, x2 = x[:x.size(0)//2], x[x.size(0)//2:]
         
-        z1,z2 = self.projector1(self.encoder1(x1)), self.projector2(self.encoder2(x2))
+        z1,z2 = self.left_projector(self.left_encoder(x1)), self.right_projector(self.right_encoder(x2))
     
         return z1, z2
 
-def create_vicreg_model(encoder1, encoder2, hidden_size=256, projection_size=128, bn=True, nlayers=3, shared_projector=True):
+def create_vicreg_model(left_encoder, right_encoder, hidden_size=256, projection_size=128, bn=True, nlayers=3, shared_projector=True):
     """
     Create VICReg model with flexible projector configuration
     
     Args:
-    - encoder1: first encoder model
-    - encoder2: second encoder model (can be the same as encoder1 for shared encoder)
+    - left_encoder: first encoder model
+    - right_encoder: second encoder model (can be the same as left_encoder for shared encoder)
     - hidden_size: hidden size for projector
     - projection_size: output size for projector
     - bn: whether to use batch normalization in projector
     - nlayers: number of layers in projector
     - shared_projector: if True, use the same projector for both branches
     """
-    n_in = in_channels(encoder1)
-    with torch.no_grad(): representation = encoder1(torch.randn((2,n_in,128,128)))
+    n_in = in_channels(left_encoder)
+    with torch.no_grad(): representation = left_encoder(torch.randn((2,n_in,128,128)))
     
-    projector1 = create_mlp_module(representation.size(1), hidden_size, projection_size, bn=bn, nlayers=nlayers)
-    apply_init(projector1)
+    left_projector = create_mlp_module(representation.size(1), hidden_size, projection_size, bn=bn, nlayers=nlayers)
+    apply_init(left_projector)
     
     if not shared_projector:
-        projector2 = create_mlp_module(representation.size(1), hidden_size, projection_size, bn=bn, nlayers=nlayers)
-        apply_init(projector2)
+        right_projector = create_mlp_module(representation.size(1), hidden_size, projection_size, bn=bn, nlayers=nlayers)
+        apply_init(right_projector)
     else:
-        projector2 = projector1
+        right_projector = left_projector
     
-    return VICRegModel(encoder1, encoder2, projector1, projector2)
+    return VICRegModel(left_encoder, right_encoder, left_projector, right_projector)
 
 #helper function to compute vicreg loss.
 def off_diagonal(x):
@@ -603,7 +604,7 @@ class VICReg(BarlowTwins):
             self.learn.xb = (torch.cat([xi, xj], dim=0),)
 
 
-# %% ../nbs/base_model.ipynb 16
+# %% ../nbs/base_model.ipynb 15
 def lf_bt(pred,I,lmb): #standard bt loss
     bs,nf = pred.size(0)//2,pred.size(1)
     
@@ -617,7 +618,7 @@ def lf_bt(pred,I,lmb): #standard bt loss
     loss = (cdiff*I + cdiff*(1-I)*lmb).sum() 
     return loss
 
-# %% ../nbs/base_model.ipynb 17
+# %% ../nbs/base_model.ipynb 16
 def lf_bt_sparse_head(pred,I,lmb,projector,sparsity_level):
   
     bt_loss = lf_bt(pred,I,lmb)
@@ -632,7 +633,7 @@ def lf_bt_sparse_head(pred,I,lmb,projector,sparsity_level):
  
     return loss
 
-# %% ../nbs/base_model.ipynb 18
+# %% ../nbs/base_model.ipynb 17
 def lf_bt_indiv_sparse(pred,I,lmb,sparsity_level,
                       ):
 
@@ -665,7 +666,7 @@ def lf_bt_indiv_sparse(pred,I,lmb,sparsity_level,
     
 
 
-# %% ../nbs/base_model.ipynb 19
+# %% ../nbs/base_model.ipynb 18
 def lf_bt_group_sparse(pred,I,lmb,sparsity_level,
                       ):
 
@@ -695,7 +696,7 @@ def lf_bt_group_sparse(pred,I,lmb,sparsity_level,
     torch.cuda.empty_cache()
     return loss
 
-# %% ../nbs/base_model.ipynb 20
+# %% ../nbs/base_model.ipynb 19
 def lf_bt_group_norm_sparse(pred,I,lmb,sparsity_level,
                       ):
 
@@ -729,7 +730,7 @@ def lf_bt_group_norm_sparse(pred,I,lmb,sparsity_level,
     torch.cuda.empty_cache()
     return loss
 
-# %% ../nbs/base_model.ipynb 21
+# %% ../nbs/base_model.ipynb 20
 def lf_bt_fun(pred,I,lmb,sparsity_level,
                       ):
 
@@ -763,7 +764,7 @@ def lf_bt_fun(pred,I,lmb,sparsity_level,
     torch.cuda.empty_cache()
     return loss
 
-# %% ../nbs/base_model.ipynb 22
+# %% ../nbs/base_model.ipynb 21
 def lf_bt_proj_group_sparse(pred,I,lmb,sparsity_level,
                            ):
 
@@ -791,7 +792,7 @@ def lf_bt_proj_group_sparse(pred,I,lmb,sparsity_level,
     torch.cuda.empty_cache()
     return loss
 
-# %% ../nbs/base_model.ipynb 24
+# %% ../nbs/base_model.ipynb 23
 @patch
 def lf(self:BarlowTwins, pred,*yb):
     "Assumes model created according to type p3"
@@ -826,11 +827,11 @@ def lf(self:BarlowTwins, pred,*yb):
 
     else: raise(Exception)
 
-# %% ../nbs/base_model.ipynb 25
+# %% ../nbs/base_model.ipynb 24
 def my_splitter_bt(m):
     return L(sequential(*m.encoder),m.projector).map(params)
 
-# %% ../nbs/base_model.ipynb 26
+# %% ../nbs/base_model.ipynb 25
 def my_splitter_bt_last_block_resnet50(m):
     #Note: don't think we actually need this guy.
     "Freeze all but the last bottleneck layer"
@@ -838,7 +839,7 @@ def my_splitter_bt_last_block_resnet50(m):
     final_block_and_projector = sequential(m.encoder[-3][-1], m.projector)
     return L(enc_except_final_block, final_block_and_projector).map(params)
 
-# %% ../nbs/base_model.ipynb 28
+# %% ../nbs/base_model.ipynb 27
 def show_bt_batch(dls,n_in,aug,n=2,print_augs=True):
     "Given a linear learner, show a batch"
         
@@ -860,7 +861,7 @@ def show_vicreg_batch(dls,n_in,aug,n=2,print_augs=True,model_type='vicreg'):
     axes = learn.vic_reg.show(n=n)
 
 
-# %% ../nbs/base_model.ipynb 30
+# %% ../nbs/base_model.ipynb 29
 class SaveBarlowLearnerCheckpoint(Callback):
     "Save such that can resume training "
     def __init__(self, experiment_dir,start_epoch=0, save_interval=250,with_opt=True):
@@ -895,7 +896,29 @@ class SaveBarlowLearnerModel(Callback):
         print(f"encoder state dict saved to {encoder_path}")
 
 
-# %% ../nbs/base_model.ipynb 31
+class SaveVicRegLearnerModel(Callback):
+    def __init__(self, experiment_dir):
+        self.experiment_dir = experiment_dir
+
+    def after_fit(self):
+        model_filename = f"trained_model_epoch_{self.epoch}.pth"
+        model_path = os.path.join(self.experiment_dir, model_filename)
+        torch.save(self.learn.model.state_dict(), model_path)
+        print(f"Model state dict saved to {model_path}")
+
+        left_encoder_filename = f"trained_left_encoder_epoch_{self.epoch}.pth"
+        left_encoder_path = os.path.join(self.experiment_dir, left_encoder_filename)
+        torch.save(self.learn.model.left_encoder.state_dict(), left_encoder_path)
+        print(f"Left encoder state dict saved to {left_encoder_path}")
+
+        right_encoder_filename = f"trained_right_encoder_epoch_{self.epoch}.pth"
+        right_encoder_path = os.path.join(self.experiment_dir, right_encoder_filename)
+        torch.save(self.learn.model.right_encoder.state_dict(), right_encoder_path)
+        print(f"Right encoder state dict saved to {right_encoder_path}")
+
+
+
+# %% ../nbs/base_model.ipynb 30
 def load_barlow_model(arch,ps,hs,path):
 
     encoder = resnet_arch_to_encoder(arch=arch, weight_type='random')
@@ -904,8 +927,17 @@ def load_barlow_model(arch,ps,hs,path):
 
     return model
 
+def load_vicreg_model(arch,ps,hs,path):
 
-# %% ../nbs/base_model.ipynb 32
+    left_encoder = resnet_arch_to_encoder(arch=arch, weight_type='random')
+    right_encoder = resnet_arch_to_encoder(arch=arch, weight_type='random')
+    model = create_vicreg_model(left_encoder,right_encoder,hidden_size=hs, projection_size=ps)
+    model.load_state_dict(torch.load(path))
+
+
+
+
+# %% ../nbs/base_model.ipynb 31
 class BarlowTrainer:
     "Setup a learner for training a BT model. Can do transfer learning, normal training, or resume training."
 
@@ -1036,7 +1068,7 @@ class BarlowTrainer:
         return self.learn
 
 
-# %% ../nbs/base_model.ipynb 39
+# %% ../nbs/base_model.ipynb 38
 def main_bt_train(config,
         start_epoch = 0,
         interrupt_epoch = 100,
@@ -1101,7 +1133,7 @@ def main_bt_train(config,
     return learn
 
 
-# %% ../nbs/base_model.ipynb 41
+# %% ../nbs/base_model.ipynb 40
 def main_vicreg_train(config,
         start_epoch = 0,
         interrupt_epoch = 100,
@@ -1129,15 +1161,23 @@ def main_vicreg_train(config,
     #vicreg model may require two encoders, so we need to handle this case
     encoder_left = resnet_arch_to_encoder(arch=config.arch, weight_type=config.weight_type)
     if config.model_type == 'vicreg':
-        model = create_vicreg_model(encoder_left, encoder_left, hidden_size=config.hs, projection_size=config.ps, shared_projector=config.shared_projector)
+
+        if not config.shared_encoder:
+            encoder_right = resnet_arch_to_encoder(arch=config.arch, weight_type=config.weight_type)
+        else:
+            encoder_right=encoder_left
+
+        model = create_vicreg_model(encoder_left, encoder_right, hidden_size=config.hs, projection_size=config.ps, shared_projector=config.shared_projector)
     
     elif config.model_type == 'br_vicreg':
+        #br_vicreg has a specific arch at present: i.e. 
+        #we have two identical encoders *except* for the first few layers
+        #which `share_resnet_parameters` handles
         encoder_right = resnet_arch_to_encoder(arch=config.arch, weight_type=config.weight_type)
-        if config.share_encoder: #this shares parameters between the two encoders.
                                   #specifically up to and including stage1. So far
                                   #just for resnet18
-            test_eq(config.arch,'resnet18','Only resnet18 supported for shared encoder at present.')  
-            share_resnet_parameters(encoder_left, encoder_right)
+        test_eq(config.arch in ['resnet18','cifar_resnet18'],True)
+        share_resnet_parameters(encoder_left, encoder_right)
 
         model = create_vicreg_model(encoder_left, encoder_right, hidden_size=config.hs, projection_size=config.ps, shared_projector=config.shared_projector)
     
@@ -1183,7 +1223,7 @@ def main_vicreg_train(config,
     return learn
 
 
-# %% ../nbs/base_model.ipynb 45
+# %% ../nbs/base_model.ipynb 41
 def get_bt_experiment_state(config,base_dir):
     """Get the load_learner_path, learn_type, start_epoch, interrupt_epoch for BT experiment.
        Basically this tells us how to continue learning (e.g. we have run two sessions for 
@@ -1214,38 +1254,49 @@ def get_bt_experiment_state(config,base_dir):
 
     return load_learner_path, learn_type, start_epoch, interrupt_epoch
 
-# %% ../nbs/base_model.ipynb 46
+# %% ../nbs/base_model.ipynb 42
 def main_bt_experiment(config,
                       base_dir,
                       ):
-    """Run several epochs of the experiment as defined in the config and where we are up to. e.g. epoch 0, or resuming
-    at epoch 99 etc. Basically a stateful version of `main_bt_train` that can be resumed. And saving.
-    """
+        """Run several epochs of the experiment as defined in the config and where we are up to. e.g. epoch 0, or resuming
+        at epoch 99 etc. Basically a stateful version of `main_bt_train` that can be resumed. And saving.
+        """
     
         
-    experiment_dir, experiment_hash,git_commit_hash = setup_experiment(config,base_dir)
+        experiment_dir, experiment_hash,git_commit_hash = setup_experiment(config,base_dir)
 
-    load_learner_path, learn_type, start_epoch, interrupt_epoch = get_bt_experiment_state(config,base_dir)
+        load_learner_path, learn_type, start_epoch, interrupt_epoch = get_bt_experiment_state(config,base_dir)      
+        
+        if 'barlow' in config.model_type:
+        
+                main_bt_train(config=config,
+                        start_epoch=start_epoch,
+                        interrupt_epoch=interrupt_epoch,
+                        load_learner_path=load_learner_path,
+                        learn_type=learn_type,
+                        experiment_dir=experiment_dir,
+                        )
+        elif 'vicreg' in config.model_type:
+                
+                main_vicreg_train(config=config,
+                        start_epoch=start_epoch,
+                        interrupt_epoch=interrupt_epoch,
+                        load_learner_path=load_learner_path,
+                        learn_type=learn_type,
+                        experiment_dir=experiment_dir,
+                        )
 
-    main_bt_train(config=config,
-            start_epoch=start_epoch,
-            interrupt_epoch=interrupt_epoch,
-            load_learner_path=load_learner_path,
-            learn_type=learn_type,
-            experiment_dir=experiment_dir,
-            )
+        # Save a metadata file in the experiment directory with the Git commit hash and other details
+        save_metadata_file(experiment_dir=experiment_dir, git_commit_hash=git_commit_hash)
 
-    # Save a metadata file in the experiment directory with the Git commit hash and other details
-    save_metadata_file(experiment_dir=experiment_dir, git_commit_hash=git_commit_hash)
-
-    # After experiment execution and all processing are complete
-    update_experiment_index(base_dir,{
-        "experiment_hash": experiment_hash,  # Unique identifier derived from the experiment's configuration
-        "experiment_dir": experiment_dir,  # Absolute path to the experiment's dedicated directory
-        "git_commit_hash": git_commit_hash,  # Git commit hash for the code version used in the experiment
-        # Potentially include additional details collected during or after the experiment, such as:
-        # Any other metadata or results summary that is relevant to the experiment
-                            })
-    
-    return experiment_dir,experiment_hash #Return the experiment_dir so we can easily access the results of the experiment
+        # After experiment execution and all processing are complete
+        update_experiment_index(base_dir,{
+                "experiment_hash": experiment_hash,  # Unique identifier derived from the experiment's configuration
+                "experiment_dir": experiment_dir,  # Absolute path to the experiment's dedicated directory
+                "git_commit_hash": git_commit_hash,  # Git commit hash for the code version used in the experiment
+                # Potentially include additional details collected during or after the experiment, such as:
+                # Any other metadata or results summary that is relevant to the experiment
+                                })
+        
+        return experiment_dir,experiment_hash #Return the experiment_dir so we can easily access the results of the experiment
 
