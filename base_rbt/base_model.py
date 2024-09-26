@@ -9,8 +9,8 @@ __all__ = ['IMAGENET_Augs', 'DERMNET_Augs', 'bt_aug_func_dict', 'RandomGaussianB
            'lf_bt_indiv_sparse', 'lf_bt_group_sparse', 'lf_bt_group_norm_sparse', 'lf_bt_fun',
            'lf_bt_proj_group_sparse', 'my_splitter_bt', 'my_splitter_bt_last_block_resnet50', 'show_bt_batch',
            'show_vicreg_batch', 'SaveBarlowLearnerCheckpoint', 'SaveBarlowLearnerModel', 'SaveVicRegLearnerModel',
-           'load_barlow_model', 'load_vicreg_model', 'BarlowTrainer', 'main_bt_train', 'main_vicreg_train',
-           'get_bt_experiment_state', 'main_bt_experiment']
+           'load_barlow_model', 'load_vicreg_model', 'BarlowTrainer', 'VICRegTrainer', 'main_bt_train',
+           'main_vicreg_train', 'get_bt_experiment_state', 'main_bt_experiment']
 
 # %% ../nbs/base_model.ipynb 3
 import importlib
@@ -1067,6 +1067,91 @@ class BarlowTrainer:
 
         return self.learn
 
+
+# %% ../nbs/base_model.ipynb 33
+class VICRegTrainer(BarlowTrainer):
+    def __init__(self,
+                 model,
+                 dls,
+                 bt_aug_pipelines,
+                 sparsity_level,
+                 sim_coeff,
+                 std_coeff,
+                 cov_coeff,
+                 n_in,
+                 model_type,
+                 wd,
+                 device,
+                 splitter_str='none',
+                 num_it=100,
+                 load_learner_path=None,
+                 experiment_dir=None,
+                 start_epoch=0,
+                 save_interval=None,
+                 export=False):
+        
+        
+                # Store VICReg-specific attributes
+        store_attr('sim_coeff,std_coeff,cov_coeff') #why doesn't this work?
+        # Call the parent constructor with None for lmb
+        super().__init__(model, dls, bt_aug_pipelines,None,sparsity_level, n_in, model_type,
+                         wd, device, splitter_str, num_it, load_learner_path,
+                         experiment_dir, start_epoch, save_interval, export)
+        
+        self.learn = self.setup_learn()
+
+    def setup_learn(self):
+        """
+        Sets up the learner with the model, callbacks, and metrics for VICReg.
+        """
+
+        self.model.to(self.device)
+
+        cbs = [VICReg(self.bt_aug_pipelines, n_in=self.n_in, 
+                      sim_coeff=self.sim_coeff, std_coeff=self.std_coeff, cov_coeff=self.cov_coeff,
+                      model_type=self.model_type, print_augs=False)]
+
+        # Use the splitter based on splitter_str
+        # if self.splitter_str == 'my_splitter_bt_last_block_resnet50':
+        #     splitter = my_splitter_bt_last_block_resnet50
+        # else:
+        #     splitter = my_splitter_bt
+        #learn = Learner(self.dls, self.model, splitter=splitter, wd=self.wd, cbs=cbs)
+        
+        #TODO: Implement custom splitter for VICReg
+        #splitter not supported yet for vicreg: we can do this but need a custom splitter.
+        #The issue is just that vicreg e.g. has encoder_left and encoder_right, v.s.
+        #BT which just has one encoder. Just leaving splitter off for now
+        learn = Learner(self.dls, self.model, wd=self.wd, cbs=cbs)
+        if self.load_learner_path: 
+            learn.load(self.load_learner_path, with_opt=True)
+
+        return learn
+    
+    def _get_training_cbs(self,interrupt_epoch):
+        "Add train-time cbs to learner. Note e.g. we don't want these in operation when we're doing lr_find."
+
+        
+        cbs=[InterruptCallback(interrupt_epoch)]
+        
+        if self.experiment_dir: #same as for barlow
+            cbs.append(SaveBarlowLearnerCheckpoint(experiment_dir=self.experiment_dir,
+                                             start_epoch = self.start_epoch,
+                                             save_interval=self.save_interval,
+                                             )
+                      )
+        
+        if self.export: #different to barlow. Clearly we in principle want this 
+                        #more abstract so it just works. But ok.
+            cbs.append(SaveVicRegLearnerModel(experiment_dir=self.experiment_dir))
+   
+        return cbs
+
+    # # Override the train method if necessary
+    # def train(self, learn_type, freeze_epochs:int, epochs:int, start_epoch:int, interrupt_epoch:int):
+    #     """Train model using VICReg"""
+    #     # You can customize this method for VICReg-specific training logic if needed
+    #     return super().train(learn_type, freeze_epochs, epochs, start_epoch, interrupt_epoch)
 
 # %% ../nbs/base_model.ipynb 38
 def main_bt_train(config,
