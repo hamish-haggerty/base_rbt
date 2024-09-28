@@ -590,10 +590,10 @@ class VICReg(BarlowTwins):
             # Concatenate the halves
             self.learn.xb = (torch.cat([xi_left, xj_right], dim=0),)
 
-            print(f"Input shape: {self.x.shape}")
-            print(f"Augmented left half shape: {xi_left.shape}")
-            print(f"Augmented right half shape: {xj_right.shape}")
-            print(f"Combined batch shape: {self.learn.xb[0].shape}")
+            # print(f"Input shape: {self.x.shape}")
+            # print(f"Augmented left half shape: {xi_left.shape}")
+            # print(f"Augmented right half shape: {xj_right.shape}")
+            # print(f"Combined batch shape: {self.learn.xb[0].shape}")
 
         else:
             # Original implementation for 'vicreg'
