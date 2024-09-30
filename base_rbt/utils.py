@@ -304,7 +304,8 @@ class CIFAR10SwinWrapper(nn.Module):
         self.left_embed = nn.Parameter(torch.randn(1, 512, 4, 2))  # Embedding for left half
         self.right_embed = nn.Parameter(torch.randn(1, 512, 4, 2))  # Embedding for right half
 
-        # Swin Transformer block
+        #Swin Transformer block
+
         self.swin_block = SwinTransformerBlock(
             dim=embed_dim,
             input_resolution=(img_size, img_size),
@@ -313,9 +314,8 @@ class CIFAR10SwinWrapper(nn.Module):
             shift_size=0,  # Optional: shift window size if needed
             mlp_ratio=4.0,
             qkv_bias=True,
-            drop=0.0,
-            attn_drop=0.0,
-            drop_path=0.0,
+            attn_drop=0.0,   # This argument still exists
+            drop_path=0.0,   # This argument still exists
             act_layer=nn.GELU,
             norm_layer=nn.LayerNorm
         )
