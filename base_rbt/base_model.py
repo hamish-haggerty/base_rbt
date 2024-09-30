@@ -443,7 +443,7 @@ def create_vicreg_model(left_encoder, right_encoder, hidden_size=256, projection
     - shared_projector: if True, use the same projector for both branches
     """
     n_in = in_channels(left_encoder)
-    with torch.no_grad(): representation = left_encoder(torch.randn((2,n_in,128,128)))
+    with torch.no_grad(): representation = left_encoder(torch.randn((2,n_in,32,32)))
     
     left_projector = create_mlp_module(representation.size(1), hidden_size, projection_size, bn=bn, nlayers=nlayers)
     apply_init(left_projector)
@@ -571,24 +571,32 @@ class VICReg(BarlowTwins):
 
         #here we dont zero pad at all, just get 16x32 (for cifar, say)
         if self.model_type == 'br_vicreg':
-            # Apply augmentations first
+            # Original implementation for 'vicreg'
             if self.n_in == 1:
-                xi = self.aug1(TensorImageBW(self.x))
-                xj = self.aug2(TensorImageBW(self.x))
+                xi, xj = self.aug1(TensorImageBW(self.x)), self.aug2(TensorImageBW(self.x))
             elif self.n_in == 3:
-                xi = self.aug1(TensorImage(self.x))
-                xj = self.aug2(TensorImage(self.x))
-            
-            # Dynamically calculate the split point
-            _, _, height, width = xi.shape
-            split_point = width // 2
+                xi, xj = self.aug1(TensorImage(self.x)), self.aug2(TensorImage(self.x))
+            self.learn.xb = (torch.cat([xi, xj], dim=0),)
 
-            # Split each image into left and right halves
-            xi_left = xi[..., :split_point]  # Left half
-            xj_right = xj[..., split_point:]  # Right half
+
+            # # Apply augmentations first
+            # if self.n_in == 1:
+            #     xi = self.aug1(TensorImageBW(self.x))
+            #     xj = self.aug2(TensorImageBW(self.x))
+            # elif self.n_in == 3:
+            #     xi = self.aug1(TensorImage(self.x))
+            #     xj = self.aug2(TensorImage(self.x))
             
-            # Concatenate the halves
-            self.learn.xb = (torch.cat([xi_left, xj_right], dim=0),)
+            # # Dynamically calculate the split point
+            # _, _, height, width = xi.shape
+            # split_point = width // 2
+
+            # # Split each image into left and right halves
+            # xi_left = xi[..., :split_point]  # Left half
+            # xj_right = xj[..., split_point:]  # Right half
+            
+            # # Concatenate the halves
+            # self.learn.xb = (torch.cat([xi_left, xj_right], dim=0),)
 
             # print(f"Input shape: {self.x.shape}")
             # print(f"Augmented left half shape: {xi_left.shape}")
@@ -807,7 +815,6 @@ def lf(self:BarlowTwins, pred,*yb):
         pred = pred[1]
 
         return lf_bt_sparse_head(pred, self.I,lmb=self.lmb,projector=self.learn.model.projector,sparsity_level=self.sparsity_level)
-    
 
     elif self.model_type=='indiv_sparse_barlow_twins':
         return lf_bt_indiv_sparse(pred, self.I,lmb=self.lmb,sparsity_level=self.sparsity_level)
@@ -1254,17 +1261,27 @@ def main_vicreg_train(config,
 
         model = create_vicreg_model(encoder_left, encoder_right, hidden_size=config.hs, projection_size=config.ps, shared_projector=config.shared_projector)
     
+    #At present, the arch is: encoder_left = encoder_right =  Transformer(CNN_Left(x),CNN_right(x)).
     elif config.model_type == 'br_vicreg':
-        #br_vicreg has a specific arch at present: i.e. 
-        #we have two identical encoders *except* for the first few layers
-        #which `share_resnet_parameters` handles
-        encoder_right = resnet_arch_to_encoder(arch=config.arch, weight_type=config.weight_type)
+
+        #so far just implemented for cifar_resnet18. Basically we don't downsample / flatten output, since is passed to 
+        #swin layer
+        left_res_encoder = resnet_arch_to_encoder(arch=config.arch, weight_type=config.weight_type,remove_pool=True, flatten=False)
+        right_res_encoder = resnet_arch_to_encoder(arch=config.arch, weight_type=config.weight_type,remove_pool=True, flatten=False)
+
                                   #specifically up to and including stage1. So far
                                   #just for resnet18
-        test_eq(config.arch in ['resnet18','cifar_resnet18'],True)
-        share_resnet_parameters(encoder_left, encoder_right)
+        #share transformer that acts on distinct encoders. i.e.
+        #Transformer(left_res_encoder(x_left),right_res_encoder(x_right))
 
-        model = create_vicreg_model(encoder_left, encoder_right, hidden_size=config.hs, projection_size=config.ps, shared_projector=config.shared_projector)
+        encoder = BinocularResNetToSwin(
+                 left_res_encoder,
+                 right_res_encoder,
+                            )
+        
+
+
+        model = create_vicreg_model(encoder, encoder, hidden_size=config.hs, projection_size=config.ps, shared_projector=config.shared_projector)
     
 
     # Prepare data loaders according to the dataset specified in the configuration

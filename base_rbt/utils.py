@@ -3,11 +3,12 @@
 # %% auto 0
 __all__ = ['PACKAGE_NAME', 'test_grad_on', 'test_grad_off', 'seed_everything', 'adjust_config_with_derived_values', 'load_config',
            'pretty_print_ns', 'get_resnet_encoder', 'get_cifar_resnet18', 'resnet_arch_to_encoder',
-           'share_resnet_parameters', 'test_resnet_parameter_sharing_with_training', 'generate_config_hash',
-           'create_experiment_directory', 'save_configuration', 'save_metadata_file', 'update_experiment_index',
-           'get_latest_commit_hash', 'setup_experiment', 'InterruptCallback', 'SaveLearnerCheckpoint', 'extract_number',
-           'find_largest_file', 'return_max_filename', 'get_highest_num_path', 'save_dict_to_gdrive',
-           'load_dict_from_gdrive', 'download_weights']
+           'PatchEmbeddingLinear', 'CIFAR10SwinWrapper', 'BinocularResNetToSwin', 'share_resnet_parameters',
+           'test_resnet_parameter_sharing_with_training', 'generate_config_hash', 'create_experiment_directory',
+           'save_configuration', 'save_metadata_file', 'update_experiment_index', 'get_latest_commit_hash',
+           'setup_experiment', 'InterruptCallback', 'SaveLearnerCheckpoint', 'extract_number', 'find_largest_file',
+           'return_max_filename', 'get_highest_num_path', 'save_dict_to_gdrive', 'load_dict_from_gdrive',
+           'download_weights']
 
 # %% ../nbs/utils.ipynb 3
 from fastcore.test import *
@@ -33,6 +34,10 @@ import os
 import zipfile
 import torch.nn as nn
 import torch.optim as optim
+import torch
+import torch.nn as nn
+from timm.models.swin_transformer import SwinTransformerBlock
+
 
 # %% ../nbs/utils.ipynb 4
 # cfg = config.get_config()
@@ -160,7 +165,7 @@ class _SmallRes(nn.Module):
         return x
 
 
-# %% ../nbs/utils.ipynb 12
+# %% ../nbs/utils.ipynb 11
 # import torch
 # import torch.nn as nn
 # from torchvision.models import resnet18, resnet34, resnet50
@@ -168,10 +173,32 @@ class _SmallRes(nn.Module):
 # from typing import Literal
 
 @torch.no_grad()
-def get_resnet_encoder(model, n_in=3):
-    model = create_body(model, n_in=n_in, pretrained=False, cut=len(list(model.children()))-1)
-    model.add_module('flatten', torch.nn.Flatten())
+def get_resnet_encoder(model, n_in=3,flatten=True,remove_pool=False):
+
+    if remove_pool:
+        cut_point=2 
+    else:
+        cut_point=1
+    model = create_body(model, n_in=n_in, pretrained=False, cut=len(list(model.children()))-cut_point)
+    if flatten:
+        model.add_module('flatten', torch.nn.Flatten())
     return model
+
+# @torch.no_grad()
+# def get_resnet_encoder(model, n_in=3, flatten=True, remove_pool=True):
+#     # Remove the final FC layer
+#     modules = list(model.children())[:-1]
+    
+#     # Optionally remove the final adaptive average pooling layer
+#     if remove_pool:
+#         modules = modules[:-1]
+    
+#     model = nn.Sequential(*modules)
+    
+#     if flatten:
+#         model.add_module('flatten', nn.Flatten())
+    
+#     return model
 
 #helper function
 def get_cifar_resnet18(model):
@@ -184,8 +211,11 @@ def get_cifar_resnet18(model):
 def resnet_arch_to_encoder(
     arch: Literal['smallres', 'resnet18', 'resnet34', 'resnet50', 'cifar_resnet18'],
     weight_type: Literal['random', 'imgnet_bt_pretrained', 'imgnet_sup_pretrained',
-                         'dermnet_bt_pretrained', 'imgnet_bt_dermnet_bt_pretrained', 'cifar10_pretrained'] = 'random'
-                          ):
+                         'dermnet_bt_pretrained', 'imgnet_bt_dermnet_bt_pretrained', 
+                         'cifar10_pretrained,'] = 'random',
+    remove_pool=False,
+    flatten=True,
+                            ):
     """
     Given a ResNet architecture, return the encoder configured for 3 input channels.
     The 'weight_type' argument specifies the weight initialization strategy.
@@ -222,7 +252,7 @@ def resnet_arch_to_encoder(
         else:
             _model = resnet18()
 
-    elif arch == 'cifar_resnet18':
+    elif 'cifar_resnet18' in arch:
         assert weight_type in ['random', 'cifar10_pretrained'], "CIFAR ResNet18 only supports 'random' or 'cifar10_pretrained' weight types"
         _model = resnet18()
         _model = get_cifar_resnet18(_model)  # Adjust ResNet18 for CIFAR-10
@@ -233,9 +263,166 @@ def resnet_arch_to_encoder(
     else:
         raise ValueError('Architecture not recognized')
 
-    return get_resnet_encoder(_model, n_in)
+    return get_resnet_encoder(_model, n_in,remove_pool=remove_pool,flatten=flatten)
 
-# %% ../nbs/utils.ipynb 13
+# %% ../nbs/utils.ipynb 12
+class PatchEmbeddingLinear(nn.Module):
+    """Linear Patch Embedding Layer"""
+    def __init__(self, img_size=4, patch_size=1, in_channels=512, embed_dim=96):
+        super().__init__()
+        self.img_size = img_size
+        self.patch_size = patch_size
+        self.num_patches = (img_size // patch_size) ** 2
+        self.embed_dim = embed_dim
+
+        # Linear projection of flattened patches
+        self.proj = nn.Linear(patch_size * patch_size * in_channels, embed_dim)
+
+    def forward(self, x):
+        B, C, H, W = x.shape
+        # Adjust the assertion to handle cases where height or width could be smaller than img_size
+        assert H == self.img_size and W == self.img_size, f"Image size doesn't match, got {H}x{W}"
+
+        # Step 1: Unfold image into patches
+        patches = x.unfold(2, self.patch_size, self.patch_size).unfold(3, self.patch_size, self.patch_size)
+        patches = patches.contiguous().view(B, C, -1, self.patch_size * self.patch_size)  # (B, C, num_patches, patch_size^2)
+        patches = patches.permute(0, 2, 1, 3).reshape(B, self.num_patches, -1)  # (B, num_patches, patch_size^2 * in_channels)
+
+        # Step 2: Apply linear embedding to each patch
+        embeddings = self.proj(patches)  # (B, num_patches, embed_dim)
+
+        return embeddings
+
+class CIFAR10SwinWrapper(nn.Module):
+    def __init__(self, img_size=4, patch_size=1, in_channels=512, embed_dim=96, window_size=2, num_heads=4):
+        super().__init__()
+
+        # Patch embedding layer (linear projection)
+        self.patch_embed = PatchEmbeddingLinear(img_size=img_size, patch_size=patch_size, in_channels=in_channels, embed_dim=embed_dim)
+
+        # Learnable embeddings for left and right halves (match shape to the feature maps)
+        self.left_embed = nn.Parameter(torch.randn(1, 512, 4, 2))  # Embedding for left half
+        self.right_embed = nn.Parameter(torch.randn(1, 512, 4, 2))  # Embedding for right half
+
+        # Swin Transformer block
+        self.swin_block = SwinTransformerBlock(
+            dim=embed_dim,
+            input_resolution=(img_size, img_size),
+            num_heads=num_heads,
+            window_size=window_size,
+            shift_size=0,  # Optional: shift window size if needed
+            mlp_ratio=4.0,
+            qkv_bias=True,
+            drop=0.0,
+            attn_drop=0.0,
+            drop_path=0.0,
+            act_layer=nn.GELU,
+            norm_layer=nn.LayerNorm
+        )
+
+        # Final LayerNorm
+        self.norm = nn.LayerNorm(embed_dim)
+
+        # Final linear layer to project to 512 dimensions (matching ResNet output size)
+        self.fc = nn.Linear(img_size * img_size * embed_dim, 512)
+
+    def forward(self,x_left,x_right):
+
+        # Note: x_left and x_right have shape torch.Size([B, 512, 2, 4])
+
+        # Add left and right embeddings to each respective tensor
+        x_left = x_left + self.left_embed
+        x_right = x_right + self.right_embed
+
+        # Concatenate the left and right halves along the height dimension
+        x = torch.cat((x_left, x_right), dim=-1)  # Shape: (B, 512, 4, 4)
+
+        # Patch embedding for the combined input
+        x_embedded = self.patch_embed(x)  # Shape: (B, num_patches, embed_dim)
+
+        # Apply the Swin Transformer block
+        x_transformed = self.swin_block(x_embedded)  # Shape: (B, num_patches, embed_dim)
+
+        # Final normalization
+        x_normalized = self.norm(x_transformed)
+
+        # Flatten the output and apply the linear layer
+        x_flat = x_normalized.view(x_normalized.size(0), -1)  # Flatten to (B, num_patches * embed_dim)
+        output = self.fc(x_flat)  # Shape: (B, 512)
+
+        return output
+
+#Basically wrapper class: Transformer(CNN_left(.),CNN_right(.))
+class BinocularResNetToSwin(nn.Module):
+    def __init__(self,
+                 left_res_encoder,
+                 right_res_encoder,
+                 swin_embed_dim=96, 
+                 swin_window_size=2, 
+                 swin_num_heads=4):
+        super().__init__()
+        self.left_res_encoder=left_res_encoder
+        self.right_res_encoder=right_res_encoder
+        
+        # # Initialize left and right encoders using the resnet_arch_to_encoder
+        # self.left_encoder = resnet_arch_to_encoder(
+        #     arch=resnet_arch, 
+        #     weight_type=weight_type, 
+        #     remove_pool=True, 
+        #     flatten=False
+        # )
+        # self.right_encoder = resnet_arch_to_encoder(
+        #     arch=resnet_arch, 
+        #     weight_type=weight_type, 
+        #     remove_pool=True, 
+        #     flatten=False
+        # )
+        
+        # Initialize Swin Transformer wrapper
+        self.swin_wrapper = CIFAR10SwinWrapper(
+            img_size=4,        # The output from ResNet will be 4x4
+            patch_size=1,      # Each patch will be 1x1 from the ResNet feature map
+            in_channels=512,   # The number of channels from the ResNet encoder output
+            embed_dim=swin_embed_dim,      # Embedding dimension for the Swin block
+            window_size=swin_window_size,  # Window size for Swin Transformer
+            num_heads=swin_num_heads       # Number of attention heads
+        )
+
+    def forward(self, x):
+        # Split input into left and right halves
+        B, C, H, W = x.shape
+        assert W % 2 == 0, "Width must be even to split into left and right halves."
+        
+        left_input = x[:, :, :, :W // 2]   # Left half (correct?)
+        right_input = x[:, :, :, W // 2:]  # Right half
+        
+        # Pass through left and right encoders
+        left_encoded = self.left_res_encoder(left_input)  # Shape: (B, 512, 4, 2)
+        right_encoded = self.right_res_encoder(right_input)  # Shape: (B, 512, 4, 2)
+        
+        # Pass the encoded left and right halves through the Swin Transformer wrapper
+        output = self.swin_wrapper(left_encoded, right_encoded)  # Shape: (B, 512)
+
+        return output
+
+
+if __name__ == '__main__':
+    #Example:
+    #| hide
+    left_resnet = resnet_arch_to_encoder('cifar_resnet18', remove_pool=True, flatten=False)
+    right_resnet = resnet_arch_to_encoder('cifar_resnet18', remove_pool=True, flatten=False)
+    model =  BinocularResNetToSwin(
+                    left_resnet,
+                    right_resnet,
+                    swin_embed_dim=96, 
+                    swin_window_size=2, 
+                    swin_num_heads=4)
+    _x = torch.rand(1,3,32,32)
+    out=model(_x)
+    print(out.shape)
+
+
+# %% ../nbs/utils.ipynb 15
 def share_resnet_parameters(encoder_left, encoder_right):
     """Just tested for resnet18 or cifar_resnet18. Share params up to and inc stage 1."""
     for i in range(5):  # 0 to 4 inclusive
@@ -277,7 +464,7 @@ def test_resnet_parameter_sharing_with_training(encoder_left, encoder_right):
     print("All tests passed, including parameter update check!")
    
 
-# %% ../nbs/utils.ipynb 15
+# %% ../nbs/utils.ipynb 18
 def generate_config_hash(config):
     """
     Generates a unique hash for a given experiment configuration.
@@ -303,7 +490,7 @@ def generate_config_hash(config):
     return short_hash
 
 
-# %% ../nbs/utils.ipynb 18
+# %% ../nbs/utils.ipynb 21
 def create_experiment_directory(base_dir, config):
     # Generate a unique hash for the configuration
     unique_hash = generate_config_hash(config)
@@ -397,7 +584,7 @@ def setup_experiment(config,base_dir):
     return experiment_dir, experiment_hash,git_commit_hash
 
 
-# %% ../nbs/utils.ipynb 19
+# %% ../nbs/utils.ipynb 22
 class InterruptCallback(Callback):
     def __init__(self, interrupt_epoch):
         super().__init__()
@@ -426,7 +613,7 @@ class SaveLearnerCheckpoint(Callback):
             print(f"Checkpoint saved to {checkpoint_path}")
 
 
-# %% ../nbs/utils.ipynb 20
+# %% ../nbs/utils.ipynb 23
 def extract_number(filename):
     """Extract the number from end of  filename. e.g. `epoch`"""
     #pattern = re.compile(r"_epoch_(\d+)\.pt[h]?")
@@ -529,7 +716,7 @@ def get_highest_num_path(base_dir, config):
 
     
 
-# %% ../nbs/utils.ipynb 21
+# %% ../nbs/utils.ipynb 24
 def save_dict_to_gdrive(d,directory, filename):
     #e.g. directory='/content/drive/My Drive/random_initial_weights'
     filepath = directory + '/' + filename + '.pkl'
@@ -543,7 +730,7 @@ def load_dict_from_gdrive(directory,filename):
         d = pickle.load(f)
     return d
 
-# %% ../nbs/utils.ipynb 22
+# %% ../nbs/utils.ipynb 25
 def download_weights():
 
     # Define paths
