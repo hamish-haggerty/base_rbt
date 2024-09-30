@@ -279,80 +279,76 @@ class PatchEmbeddingLinear(nn.Module):
         self.proj = nn.Linear(patch_size * patch_size * in_channels, embed_dim)
 
     def forward(self, x):
-        B, C, H, W = x.shape
-        # Adjust the assertion to handle cases where height or width could be smaller than img_size
+        B, H, W, C = x.shape
         assert H == self.img_size and W == self.img_size, f"Image size doesn't match, got {H}x{W}"
 
-        # Step 1: Unfold image into patches
-        patches = x.unfold(2, self.patch_size, self.patch_size).unfold(3, self.patch_size, self.patch_size)
-        patches = patches.contiguous().view(B, C, -1, self.patch_size * self.patch_size)  # (B, C, num_patches, patch_size^2)
-        patches = patches.permute(0, 2, 1, 3).reshape(B, self.num_patches, -1)  # (B, num_patches, patch_size^2 * in_channels)
+        # Rearrange input to (B, num_patches, patch_size^2 * in_channels)
+        patches = x.reshape(B, self.num_patches, -1)
 
-        # Step 2: Apply linear embedding to each patch
+        # Apply linear embedding to each patch
         embeddings = self.proj(patches)  # (B, num_patches, embed_dim)
 
         return embeddings
 
 class CIFAR10SwinWrapper(nn.Module):
-    def __init__(self, img_size=4, patch_size=1, in_channels=512, embed_dim=96, window_size=2, num_heads=4):
+    def __init__(self, in_channels=512, embed_dim=96, window_size=2, num_heads=4):
         super().__init__()
 
-        # Patch embedding layer (linear projection)
-        self.patch_embed = PatchEmbeddingLinear(img_size=img_size, patch_size=patch_size, in_channels=in_channels, embed_dim=embed_dim)
+        self.embed_dim = embed_dim
 
-        # Learnable embeddings for left and right halves (match shape to the feature maps)
-        self.left_embed = nn.Parameter(torch.randn(1, 512, 4, 2))  # Embedding for left half
-        self.right_embed = nn.Parameter(torch.randn(1, 512, 4, 2))  # Embedding for right half
+        # Learnable embeddings for left and right halves
+        self.left_embed = nn.Parameter(torch.randn(1, 512, 4, 2))
+        self.right_embed = nn.Parameter(torch.randn(1, 512, 4, 2))
 
-        #Swin Transformer block
+        # Linear projection to embed_dim
+        self.proj = nn.Linear(in_channels, embed_dim)
 
+        # Swin Transformer block
         self.swin_block = SwinTransformerBlock(
             dim=embed_dim,
-            input_resolution=(img_size, img_size),
+            input_resolution=(4, 4),  # Corrected to match the 4x4 spatial dimension
             num_heads=num_heads,
             window_size=window_size,
-            shift_size=0,  # Optional: shift window size if needed
+            shift_size=0,
             mlp_ratio=4.0,
             qkv_bias=True,
-            attn_drop=0.0,   # This argument still exists
-            drop_path=0.0,   # This argument still exists
+            drop_path=0.0,
             act_layer=nn.GELU,
             norm_layer=nn.LayerNorm
         )
 
-        # Final LayerNorm
         self.norm = nn.LayerNorm(embed_dim)
+        self.fc = nn.Linear(16 * embed_dim, 512)
 
-        # Final linear layer to project to 512 dimensions (matching ResNet output size)
-        self.fc = nn.Linear(img_size * img_size * embed_dim, 512)
-
-    def forward(self,x_left,x_right):
-
-        # Note: x_left and x_right have shape torch.Size([B, 512, 2, 4])
-
-        # Add left and right embeddings to each respective tensor
+    def forward(self, x_left, x_right):
+        # x_left and x_right have shape (B, 512, 4, 2)
+        B, C, H, W = x_left.shape
+        
+        # Add left and right embeddings to the ResNet outputs
         x_left = x_left + self.left_embed
         x_right = x_right + self.right_embed
 
-        # Concatenate the left and right halves along the height dimension
+        # Concatenate along the last dimension (width) to create a 4x4 spatial dimension
         x = torch.cat((x_left, x_right), dim=-1)  # Shape: (B, 512, 4, 4)
 
-        # Patch embedding for the combined input
-        x_embedded = self.patch_embed(x)  # Shape: (B, num_patches, embed_dim)
+        # Rearrange to (B, 4, 4, 512)
+        x = x.permute(0, 2, 3, 1)
+
+        # Project to embed_dim
+        x = self.proj(x)  # Shape: (B, 4, 4, embed_dim)
 
         # Apply the Swin Transformer block
-        x_transformed = self.swin_block(x_embedded)  # Shape: (B, num_patches, embed_dim)
+        x = self.swin_block(x)  # Shape: (B, 4, 4, embed_dim)
 
         # Final normalization
-        x_normalized = self.norm(x_transformed)
+        x = self.norm(x)
 
-        # Flatten the output and apply the linear layer
-        x_flat = x_normalized.view(x_normalized.size(0), -1)  # Flatten to (B, num_patches * embed_dim)
-        output = self.fc(x_flat)  # Shape: (B, 512)
+        # Flatten and project to final output dimension
+        x = x.reshape(B, -1)  # Shape: (B, 16 * embed_dim)
+        output = self.fc(x)  # Shape: (B, 512)
 
         return output
 
-#Basically wrapper class: Transformer(CNN_left(.),CNN_right(.))
 class BinocularResNetToSwin(nn.Module):
     def __init__(self,
                  left_res_encoder,
@@ -361,50 +357,29 @@ class BinocularResNetToSwin(nn.Module):
                  swin_window_size=2, 
                  swin_num_heads=4):
         super().__init__()
-        self.left_res_encoder=left_res_encoder
-        self.right_res_encoder=right_res_encoder
+        self.left_res_encoder = left_res_encoder
+        self.right_res_encoder = right_res_encoder
         
-        # # Initialize left and right encoders using the resnet_arch_to_encoder
-        # self.left_encoder = resnet_arch_to_encoder(
-        #     arch=resnet_arch, 
-        #     weight_type=weight_type, 
-        #     remove_pool=True, 
-        #     flatten=False
-        # )
-        # self.right_encoder = resnet_arch_to_encoder(
-        #     arch=resnet_arch, 
-        #     weight_type=weight_type, 
-        #     remove_pool=True, 
-        #     flatten=False
-        # )
-        
-        # Initialize Swin Transformer wrapper
         self.swin_wrapper = CIFAR10SwinWrapper(
-            img_size=4,        # The output from ResNet will be 4x4
-            patch_size=1,      # Each patch will be 1x1 from the ResNet feature map
-            in_channels=512,   # The number of channels from the ResNet encoder output
-            embed_dim=swin_embed_dim,      # Embedding dimension for the Swin block
-            window_size=swin_window_size,  # Window size for Swin Transformer
-            num_heads=swin_num_heads       # Number of attention heads
+            in_channels=512,
+            embed_dim=swin_embed_dim,
+            window_size=swin_window_size,
+            num_heads=swin_num_heads
         )
 
     def forward(self, x):
-        # Split input into left and right halves
         B, C, H, W = x.shape
         assert W % 2 == 0, "Width must be even to split into left and right halves."
         
-        left_input = x[:, :, :, :W // 2]   # Left half (correct?)
-        right_input = x[:, :, :, W // 2:]  # Right half
+        left_input = x[:, :, :, :W // 2]
+        right_input = x[:, :, :, W // 2:]
         
-        # Pass through left and right encoders
         left_encoded = self.left_res_encoder(left_input)  # Shape: (B, 512, 4, 2)
         right_encoded = self.right_res_encoder(right_input)  # Shape: (B, 512, 4, 2)
-        
-        # Pass the encoded left and right halves through the Swin Transformer wrapper
         output = self.swin_wrapper(left_encoded, right_encoded)  # Shape: (B, 512)
 
         return output
-
+    
 
 if __name__ == '__main__':
     #Example:
