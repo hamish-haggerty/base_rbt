@@ -2,13 +2,12 @@
 
 # %% auto 0
 __all__ = ['PACKAGE_NAME', 'test_grad_on', 'test_grad_off', 'seed_everything', 'adjust_config_with_derived_values', 'load_config',
-           'pretty_print_ns', 'get_resnet_encoder', 'get_cifar_resnet18', 'resnet_arch_to_encoder',
-           'BinocularAwareSwin', 'BinocularSwintoRes', 'share_resnet_parameters',
-           'test_resnet_parameter_sharing_with_training', 'generate_config_hash', 'create_experiment_directory',
-           'save_configuration', 'save_metadata_file', 'update_experiment_index', 'get_latest_commit_hash',
-           'setup_experiment', 'InterruptCallback', 'SaveLearnerCheckpoint', 'extract_number', 'find_largest_file',
-           'return_max_filename', 'get_highest_num_path', 'save_dict_to_gdrive', 'load_dict_from_gdrive',
-           'download_weights']
+           'pretty_print_ns', 'get_resnet_encoder', 'get_cifar_resnet18', 'resnet_arch_to_encoder', 'SimpleCNN',
+           'BinocularEncoder', 'share_resnet_parameters', 'test_resnet_parameter_sharing_with_training',
+           'generate_config_hash', 'create_experiment_directory', 'save_configuration', 'save_metadata_file',
+           'update_experiment_index', 'get_latest_commit_hash', 'setup_experiment', 'InterruptCallback',
+           'SaveLearnerCheckpoint', 'extract_number', 'find_largest_file', 'return_max_filename',
+           'get_highest_num_path', 'save_dict_to_gdrive', 'load_dict_from_gdrive', 'download_weights']
 
 # %% ../nbs/utils.ipynb 3
 from fastcore.test import *
@@ -90,7 +89,7 @@ def adjust_config_with_derived_values(config):
     #*determined* by the arch. This is a biy annoying, but we just leave it
     #as is for simplicity. 
     
-    if config.arch in ['smallres','resnet18','cifar_resnet18','cifar_resnet18_swin','resnet34']:
+    if config.arch in ['smallres','resnet18','cifar_resnet18','cnn_lr_cifar_resnet18','cifar_resnet18_swin','resnet34']:
         config.encoder_dimension = 512
 
     elif config.arch in ['resnet50']:
@@ -265,85 +264,49 @@ def resnet_arch_to_encoder(
 
     return get_resnet_encoder(_model,remove_pool=remove_pool,flatten=flatten)
 
-# %% ../nbs/utils.ipynb 14
-class BinocularAwareSwin(nn.Module):
-    def __init__(self, in_channels=3, embed_dim=96, window_size=4, num_heads=4):
+# %% ../nbs/utils.ipynb 15
+class SimpleCNN(nn.Module):
+    def __init__(self, in_channels=3, out_channels=3):
         super().__init__()
-        self.embed_dim = embed_dim
-
-        # Patch embedding
-        self.patch_embed = nn.Conv2d(in_channels + 1, embed_dim, kernel_size=1, stride=1)
-
-        # Pre-compute the left/right mask
-        self.register_buffer('left_right', torch.cat([
-            torch.ones(1, 1, 32, 16),
-            torch.zeros(1, 1, 32, 16)
-        ], dim=3))
-
-        # Swin Transformer block
-        self.swin_block = SwinTransformerBlock(
-            dim=embed_dim,
-            input_resolution=(32, 32),
-            num_heads=num_heads,
-            window_size=window_size,
-            shift_size=0,
-            mlp_ratio=4.0,
-            qkv_bias=True,
-            drop_path=0.0,
-            act_layer=nn.GELU,
-            norm_layer=nn.LayerNorm
-        )
-
-        self.norm = nn.LayerNorm(embed_dim)
-
+        self.conv1 = nn.Conv2d(in_channels, 16, kernel_size=3, stride=1, padding=1)
+        self.bn1 = nn.BatchNorm2d(16)
+        self.conv2 = nn.Conv2d(16, out_channels, kernel_size=3, stride=1, padding=1)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU(inplace=True)
+    
     def forward(self, x):
-        B, C, H, W = x.shape
-        
-        # Use the pre-computed left/right mask
-        left_right = self.left_right.expand(B, -1, -1, -1)
-        
-        # Concatenate with input
-        x = torch.cat([x, left_right], dim=1)
-
-        # Patch embedding
-        x = self.patch_embed(x)  # Shape: (B, embed_dim, 32, 32)
-        
-        # Rearrange to (B, 32, 32, embed_dim)
-        x = x.permute(0, 2, 3, 1)
-
-        # Apply the Swin Transformer block
-        x = self.swin_block(x)  # Shape: (B, 32, 32, embed_dim)
-
-        # Final normalization
-        x = self.norm(x)
-
+        x = self.relu(self.bn1(self.conv1(x)))
+        x = self.relu(self.bn2(self.conv2(x)))
         return x
 
-class BinocularSwintoRes(nn.Module):
-    def __init__(self, swin, cnn):
+class BinocularEncoder(nn.Module):
+    def __init__(self, res):
         super().__init__()
-        self.swin = swin
-        self.cnn = cnn
-
+        self.left_cnn = SimpleCNN(in_channels=3, out_channels=3)
+        self.right_cnn = SimpleCNN(in_channels=3, out_channels=3)
+        self.res = res
+    
     def forward(self, x):
-        x = self.swin(x)
-        x = x.permute(0, 3, 1, 2)  # Shape: (B, embed_dim, 32, 32)
-        return self.cnn(x)
+        # e.g. x = Bx3x32x32
+        x_left = x[:, :, :, :x.shape[3]//2]  # left half of x
+        x_right = x[:, :, :, x.shape[3]//2:]  # right half of x
+        
+        x_left = self.left_cnn(x_left)
+        x_right = self.right_cnn(x_right)
+        
+        # Concatenate along the width dimension
+        x_cat = torch.cat([x_left, x_right], dim=-1)
+        
+        x = self.res(x_cat+x)
+        return x
 
-    @property
-    def in_channels(self):
-        return 3  # Always return 3 for CIFAR images
+# res = resnet_arch_to_encoder('cifar_resnet18')
+# model = BinocularEncoder(res)
+# _x = torch.rand(1,3,32,32)
+# model(_x).shape
 
-if __name__ == '__main__':
-    swin = BinocularAwareSwin()
-    cnn = resnet_arch_to_encoder('cifar_resnet18', n_in=96)
-    model = BinocularSwintoRes(swin=swin, cnn=cnn)
-    _x = torch.rand(1, 3, 32, 32)
-    _x = model(_x)
-    print(_x.shape)
-    print(f"Input channels: {model.in_channels}")
 
-# %% ../nbs/utils.ipynb 21
+# %% ../nbs/utils.ipynb 22
 def share_resnet_parameters(encoder_left, encoder_right):
     """Just tested for resnet18 or cifar_resnet18. Share params up to and inc stage 1."""
     for i in range(5):  # 0 to 4 inclusive
@@ -385,7 +348,7 @@ def test_resnet_parameter_sharing_with_training(encoder_left, encoder_right):
     print("All tests passed, including parameter update check!")
    
 
-# %% ../nbs/utils.ipynb 24
+# %% ../nbs/utils.ipynb 25
 def generate_config_hash(config):
     """
     Generates a unique hash for a given experiment configuration.
@@ -411,7 +374,7 @@ def generate_config_hash(config):
     return short_hash
 
 
-# %% ../nbs/utils.ipynb 27
+# %% ../nbs/utils.ipynb 28
 def create_experiment_directory(base_dir, config):
     # Generate a unique hash for the configuration
     unique_hash = generate_config_hash(config)
@@ -505,7 +468,7 @@ def setup_experiment(config,base_dir):
     return experiment_dir, experiment_hash,git_commit_hash
 
 
-# %% ../nbs/utils.ipynb 28
+# %% ../nbs/utils.ipynb 29
 class InterruptCallback(Callback):
     def __init__(self, interrupt_epoch):
         super().__init__()
@@ -534,7 +497,7 @@ class SaveLearnerCheckpoint(Callback):
             print(f"Checkpoint saved to {checkpoint_path}")
 
 
-# %% ../nbs/utils.ipynb 29
+# %% ../nbs/utils.ipynb 30
 def extract_number(filename):
     """Extract the number from end of  filename. e.g. `epoch`"""
     #pattern = re.compile(r"_epoch_(\d+)\.pt[h]?")
@@ -637,7 +600,7 @@ def get_highest_num_path(base_dir, config):
 
     
 
-# %% ../nbs/utils.ipynb 30
+# %% ../nbs/utils.ipynb 31
 def save_dict_to_gdrive(d,directory, filename):
     #e.g. directory='/content/drive/My Drive/random_initial_weights'
     filepath = directory + '/' + filename + '.pkl'
@@ -651,7 +614,7 @@ def load_dict_from_gdrive(directory,filename):
         d = pickle.load(f)
     return d
 
-# %% ../nbs/utils.ipynb 31
+# %% ../nbs/utils.ipynb 32
 def download_weights():
 
     # Define paths
