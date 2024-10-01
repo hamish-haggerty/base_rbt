@@ -5,7 +5,7 @@ __all__ = ['IMAGENET_Augs', 'DERMNET_Augs', 'bt_aug_func_dict', 'RandomGaussianB
            'get_multi_aug_pipelines', 'get_barlow_twins_aug_pipelines', 'get_bt_cifar10_aug_pipelines',
            'helper_get_bt_augs', 'get_bt_imagenet_aug_pipelines', 'get_bt_dermnet_aug_pipelines',
            'get_bt_aug_pipelines', 'get_ssl_dls', 'BarlowTwinsModel', 'create_barlow_twins_model', 'BarlowTwins',
-           'VICRegModel', 'create_vicreg_model', 'off_diagonal', 'VICReg', 'lf_bt', 'lf_bt_sparse_head',
+           'VICRegModel', 'in_channels', 'create_vicreg_model', 'off_diagonal', 'VICReg', 'lf_bt', 'lf_bt_sparse_head',
            'lf_bt_indiv_sparse', 'lf_bt_group_sparse', 'lf_bt_group_norm_sparse', 'lf_bt_fun',
            'lf_bt_proj_group_sparse', 'my_splitter_bt', 'my_splitter_bt_last_block_resnet50', 'show_bt_batch',
            'show_vicreg_batch', 'SaveBarlowLearnerCheckpoint', 'SaveBarlowLearnerModel', 'SaveVicRegLearnerModel',
@@ -429,7 +429,15 @@ class VICRegModel(Module):
     
         return z1, z2
 
-def create_vicreg_model(left_encoder, right_encoder, hidden_size=256, projection_size=128, bn=True, nlayers=3, shared_projector=True):
+#override fastai method basically
+from fastai.vision.learner import in_channels as fastai_in_channels
+def in_channels(m):
+    try:
+        return m.in_channels
+    except AttributeError:
+        return fastai_in_channels(m)
+
+def create_vicreg_model(left_encoder, right_encoder,hidden_size=256, projection_size=128, bn=True, nlayers=3, shared_projector=True):
     """
     Create VICReg model with flexible projector configuration
     
@@ -571,11 +579,23 @@ class VICReg(BarlowTwins):
 
         #here we dont zero pad at all, just get 16x32 (for cifar, say)
         if self.model_type == 'br_vicreg':
-            # Original implementation for 'vicreg'
+            ### Original implementation for 'vicreg'
             if self.n_in == 1:
                 xi, xj = self.aug1(TensorImageBW(self.x)), self.aug2(TensorImageBW(self.x))
             elif self.n_in == 3:
                 xi, xj = self.aug1(TensorImage(self.x)), self.aug2(TensorImage(self.x))
+
+                   # Randomly apply left/right masking with 50% probability
+            p = 0.5
+            if random.random() < p:
+                # Calculate the split point
+                _, _, _, width = xi.shape
+                split_point = width // 2
+                
+                # Zero out the right half of xi and the left half of xj
+                xi[:, :, :, split_point:] = 0
+                xj[:, :, :, :split_point] = 0
+                
             self.learn.xb = (torch.cat([xi, xj], dim=0),)
 
 
@@ -612,7 +632,7 @@ class VICReg(BarlowTwins):
             self.learn.xb = (torch.cat([xi, xj], dim=0),)
 
 
-# %% ../nbs/base_model.ipynb 14
+# %% ../nbs/base_model.ipynb 15
 def lf_bt(pred,I,lmb): #standard bt loss
     bs,nf = pred.size(0)//2,pred.size(1)
     
@@ -626,7 +646,7 @@ def lf_bt(pred,I,lmb): #standard bt loss
     loss = (cdiff*I + cdiff*(1-I)*lmb).sum() 
     return loss
 
-# %% ../nbs/base_model.ipynb 15
+# %% ../nbs/base_model.ipynb 16
 def lf_bt_sparse_head(pred,I,lmb,projector,sparsity_level):
   
     bt_loss = lf_bt(pred,I,lmb)
@@ -641,7 +661,7 @@ def lf_bt_sparse_head(pred,I,lmb,projector,sparsity_level):
  
     return loss
 
-# %% ../nbs/base_model.ipynb 16
+# %% ../nbs/base_model.ipynb 17
 def lf_bt_indiv_sparse(pred,I,lmb,sparsity_level,
                       ):
 
@@ -674,7 +694,7 @@ def lf_bt_indiv_sparse(pred,I,lmb,sparsity_level,
     
 
 
-# %% ../nbs/base_model.ipynb 17
+# %% ../nbs/base_model.ipynb 18
 def lf_bt_group_sparse(pred,I,lmb,sparsity_level,
                       ):
 
@@ -704,7 +724,7 @@ def lf_bt_group_sparse(pred,I,lmb,sparsity_level,
     torch.cuda.empty_cache()
     return loss
 
-# %% ../nbs/base_model.ipynb 18
+# %% ../nbs/base_model.ipynb 19
 def lf_bt_group_norm_sparse(pred,I,lmb,sparsity_level,
                       ):
 
@@ -738,7 +758,7 @@ def lf_bt_group_norm_sparse(pred,I,lmb,sparsity_level,
     torch.cuda.empty_cache()
     return loss
 
-# %% ../nbs/base_model.ipynb 19
+# %% ../nbs/base_model.ipynb 20
 def lf_bt_fun(pred,I,lmb,sparsity_level,
                       ):
 
@@ -772,7 +792,7 @@ def lf_bt_fun(pred,I,lmb,sparsity_level,
     torch.cuda.empty_cache()
     return loss
 
-# %% ../nbs/base_model.ipynb 20
+# %% ../nbs/base_model.ipynb 21
 def lf_bt_proj_group_sparse(pred,I,lmb,sparsity_level,
                            ):
 
@@ -800,7 +820,7 @@ def lf_bt_proj_group_sparse(pred,I,lmb,sparsity_level,
     torch.cuda.empty_cache()
     return loss
 
-# %% ../nbs/base_model.ipynb 22
+# %% ../nbs/base_model.ipynb 23
 @patch
 def lf(self:BarlowTwins, pred,*yb):
     "Assumes model created according to type p3"
@@ -834,11 +854,11 @@ def lf(self:BarlowTwins, pred,*yb):
 
     else: raise(Exception)
 
-# %% ../nbs/base_model.ipynb 23
+# %% ../nbs/base_model.ipynb 24
 def my_splitter_bt(m):
     return L(sequential(*m.encoder),m.projector).map(params)
 
-# %% ../nbs/base_model.ipynb 24
+# %% ../nbs/base_model.ipynb 25
 def my_splitter_bt_last_block_resnet50(m):
     #Note: don't think we actually need this guy.
     "Freeze all but the last bottleneck layer"
@@ -846,7 +866,7 @@ def my_splitter_bt_last_block_resnet50(m):
     final_block_and_projector = sequential(m.encoder[-3][-1], m.projector)
     return L(enc_except_final_block, final_block_and_projector).map(params)
 
-# %% ../nbs/base_model.ipynb 26
+# %% ../nbs/base_model.ipynb 27
 def show_bt_batch(dls,n_in,aug,n=2,print_augs=True):
     "Given a linear learner, show a batch"
         
@@ -868,7 +888,7 @@ def show_vicreg_batch(dls,n_in,aug,n=2,print_augs=True,model_type='vicreg'):
     axes = learn.vic_reg.show(n=n)
 
 
-# %% ../nbs/base_model.ipynb 28
+# %% ../nbs/base_model.ipynb 29
 class SaveBarlowLearnerCheckpoint(Callback):
     "Save such that can resume training "
     def __init__(self, experiment_dir,start_epoch=0, save_interval=250,with_opt=True):
@@ -925,7 +945,7 @@ class SaveVicRegLearnerModel(Callback):
 
 
 
-# %% ../nbs/base_model.ipynb 29
+# %% ../nbs/base_model.ipynb 30
 def load_barlow_model(arch,ps,hs,path):
 
     encoder = resnet_arch_to_encoder(arch=arch, weight_type='random')
@@ -944,7 +964,7 @@ def load_vicreg_model(arch,ps,hs,path):
 
 
 
-# %% ../nbs/base_model.ipynb 30
+# %% ../nbs/base_model.ipynb 31
 class BarlowTrainer:
     "Setup a learner for training a BT model. Can do transfer learning, normal training, or resume training."
 
@@ -1075,7 +1095,7 @@ class BarlowTrainer:
         return self.learn
 
 
-# %% ../nbs/base_model.ipynb 32
+# %% ../nbs/base_model.ipynb 33
 class VICRegTrainer(BarlowTrainer):
     def __init__(self,
                  model,
@@ -1160,7 +1180,7 @@ class VICRegTrainer(BarlowTrainer):
     #     # You can customize this method for VICReg-specific training logic if needed
     #     return super().train(learn_type, freeze_epochs, epochs, start_epoch, interrupt_epoch)
 
-# %% ../nbs/base_model.ipynb 37
+# %% ../nbs/base_model.ipynb 38
 def main_bt_train(config,
         start_epoch = 0,
         interrupt_epoch = 100,
@@ -1225,7 +1245,7 @@ def main_bt_train(config,
     return learn
 
 
-# %% ../nbs/base_model.ipynb 39
+# %% ../nbs/base_model.ipynb 40
 def main_vicreg_train(config,
         start_epoch = 0,
         interrupt_epoch = 100,
@@ -1261,29 +1281,36 @@ def main_vicreg_train(config,
 
         model = create_vicreg_model(encoder_left, encoder_right, hidden_size=config.hs, projection_size=config.ps, shared_projector=config.shared_projector)
     
-    #At present, the arch is: encoder_left = encoder_right =  Transformer(CNN_Left(x),CNN_right(x)).
+    # #At present, the arch is: encoder_left = encoder_right =  Transformer(CNN_Left(x),CNN_right(x)).
     elif config.model_type == 'br_vicreg':
+        #Same as above for now since we are using left/right split augmentation
 
-        #so far just implemented for cifar_resnet18. Basically we don't downsample / flatten output, since is passed to 
-        #swin layer
-        left_res_encoder = resnet_arch_to_encoder(arch=config.arch, weight_type=config.weight_type,remove_pool=True, flatten=False)
-        right_res_encoder = resnet_arch_to_encoder(arch=config.arch, weight_type=config.weight_type,remove_pool=True, flatten=False)
+        print('We are using left/right image split augmentation')
+        print('the arch is standard siamese.')
+        if not config.shared_encoder:
+            encoder_right = resnet_arch_to_encoder(arch=config.arch, weight_type=config.weight_type)
+        else:
+            encoder_right=encoder_left
 
-                                  #specifically up to and including stage1. So far
-                                  #just for resnet18
-        #share transformer that acts on distinct encoders. i.e.
-        #Transformer(left_res_encoder(x_left),right_res_encoder(x_right))
-
-        encoder = BinocularResNetToSwin(
-                 left_res_encoder,
-                 right_res_encoder,
-                            )
-        
-
-
-        model = create_vicreg_model(encoder, encoder, hidden_size=config.hs, projection_size=config.ps, shared_projector=config.shared_projector)
+        model = create_vicreg_model(encoder_left, encoder_right, hidden_size=config.hs, projection_size=config.ps, shared_projector=config.shared_projector)
     
 
+
+
+
+
+    #     test_eq(config.arch,'cifar_resnet18_swin')
+    #     swin = BinocularAwareSwin()
+    #     cnn = resnet_arch_to_encoder('cifar_resnet18', n_in=96)
+    #     encoder = BinocularSwintoRes(swin=swin, cnn=cnn)
+
+    #     swin = BinocularAwareSwin()
+    #     cnn = resnet_arch_to_encoder('cifar_resnet18', n_in=96)
+    #     encoder = BinocularSwintoRes(swin=swin, cnn=cnn)
+    #     _x = torch.rand(1, 3, 32, 32)
+    #     _x = encoder(_x)
+    #     model = create_vicreg_model(encoder, encoder, hidden_size=config.hs, projection_size=config.ps, shared_projector=config.shared_projector)
+    
     # Prepare data loaders according to the dataset specified in the configuration
     dls = get_ssl_dls(dataset=config.dataset, bs=config.bs,size=config.size, device=device,pct_dataset=config.pct_dataset)
 
@@ -1325,7 +1352,7 @@ def main_vicreg_train(config,
     return learn
 
 
-# %% ../nbs/base_model.ipynb 40
+# %% ../nbs/base_model.ipynb 42
 def get_bt_experiment_state(config,base_dir):
     """Get the load_learner_path, learn_type, start_epoch, interrupt_epoch for BT experiment.
        Basically this tells us how to continue learning (e.g. we have run two sessions for 
@@ -1356,7 +1383,7 @@ def get_bt_experiment_state(config,base_dir):
 
     return load_learner_path, learn_type, start_epoch, interrupt_epoch
 
-# %% ../nbs/base_model.ipynb 41
+# %% ../nbs/base_model.ipynb 43
 def main_bt_experiment(config,
                       base_dir,
                       ):

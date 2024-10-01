@@ -3,7 +3,7 @@
 # %% auto 0
 __all__ = ['PACKAGE_NAME', 'test_grad_on', 'test_grad_off', 'seed_everything', 'adjust_config_with_derived_values', 'load_config',
            'pretty_print_ns', 'get_resnet_encoder', 'get_cifar_resnet18', 'resnet_arch_to_encoder',
-           'PatchEmbeddingLinear', 'CIFAR10SwinWrapper', 'BinocularResNetToSwin', 'share_resnet_parameters',
+           'BinocularAwareSwin', 'BinocularSwintoRes', 'share_resnet_parameters',
            'test_resnet_parameter_sharing_with_training', 'generate_config_hash', 'create_experiment_directory',
            'save_configuration', 'save_metadata_file', 'update_experiment_index', 'get_latest_commit_hash',
            'setup_experiment', 'InterruptCallback', 'SaveLearnerCheckpoint', 'extract_number', 'find_largest_file',
@@ -201,9 +201,9 @@ def get_resnet_encoder(model, n_in=3,flatten=True,remove_pool=False):
 #     return model
 
 #helper function
-def get_cifar_resnet18(model):
+def get_cifar_resnet18(model,n_in=3):
     """Modifies a ResNet18 model for CIFAR-10."""
-    model.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+    model.conv1 = nn.Conv2d(n_in, 64, kernel_size=3, stride=1, padding=1, bias=False)
     model.maxpool = nn.Identity()
     return model
 
@@ -215,6 +215,7 @@ def resnet_arch_to_encoder(
                          'cifar10_pretrained,'] = 'random',
     remove_pool=False,
     flatten=True,
+    n_in=3,
                             ):
     """
     Given a ResNet architecture, return the encoder configured for 3 input channels.
@@ -227,7 +228,6 @@ def resnet_arch_to_encoder(
     Returns:
         Encoder: An encoder configured for 3 input channels and specified architecture.
     """
-    n_in = 3
 
     if weight_type == 'imgnet_bt_pretrained': 
         assert arch == 'resnet50', "ImageNet Barlow Twins pretrained weights are only available for ResNet50"
@@ -255,7 +255,7 @@ def resnet_arch_to_encoder(
     elif 'cifar_resnet18' in arch:
         assert weight_type in ['random', 'cifar10_pretrained'], "CIFAR ResNet18 only supports 'random' or 'cifar10_pretrained' weight types"
         _model = resnet18()
-        _model = get_cifar_resnet18(_model)  # Adjust ResNet18 for CIFAR-10
+        _model = get_cifar_resnet18(_model,n_in=n_in)  # Adjust ResNet18 for CIFAR-10
 
     elif arch == 'smallres':
         _model = _SmallRes()
@@ -263,50 +263,27 @@ def resnet_arch_to_encoder(
     else:
         raise ValueError('Architecture not recognized')
 
-    return get_resnet_encoder(_model, n_in,remove_pool=remove_pool,flatten=flatten)
+    return get_resnet_encoder(_model,remove_pool=remove_pool,flatten=flatten)
 
-# %% ../nbs/utils.ipynb 12
-class PatchEmbeddingLinear(nn.Module):
-    """Linear Patch Embedding Layer"""
-    def __init__(self, img_size=4, patch_size=1, in_channels=512, embed_dim=96):
+# %% ../nbs/utils.ipynb 14
+class BinocularAwareSwin(nn.Module):
+    def __init__(self, in_channels=3, embed_dim=96, window_size=4, num_heads=4):
         super().__init__()
-        self.img_size = img_size
-        self.patch_size = patch_size
-        self.num_patches = (img_size // patch_size) ** 2
         self.embed_dim = embed_dim
 
-        # Linear projection of flattened patches
-        self.proj = nn.Linear(patch_size * patch_size * in_channels, embed_dim)
+        # Patch embedding
+        self.patch_embed = nn.Conv2d(in_channels + 1, embed_dim, kernel_size=1, stride=1)
 
-    def forward(self, x):
-        B, H, W, C = x.shape
-        assert H == self.img_size and W == self.img_size, f"Image size doesn't match, got {H}x{W}"
-
-        # Rearrange input to (B, num_patches, patch_size^2 * in_channels)
-        patches = x.reshape(B, self.num_patches, -1)
-
-        # Apply linear embedding to each patch
-        embeddings = self.proj(patches)  # (B, num_patches, embed_dim)
-
-        return embeddings
-
-class CIFAR10SwinWrapper(nn.Module):
-    def __init__(self, in_channels=512, embed_dim=96, window_size=2, num_heads=4):
-        super().__init__()
-
-        self.embed_dim = embed_dim
-
-        # Learnable embeddings for left and right halves
-        self.left_embed = nn.Parameter(torch.randn(1, 512, 4, 2))
-        self.right_embed = nn.Parameter(torch.randn(1, 512, 4, 2))
-
-        # Linear projection to embed_dim
-        self.proj = nn.Linear(in_channels, embed_dim)
+        # Pre-compute the left/right mask
+        self.register_buffer('left_right', torch.cat([
+            torch.ones(1, 1, 32, 16),
+            torch.zeros(1, 1, 32, 16)
+        ], dim=3))
 
         # Swin Transformer block
         self.swin_block = SwinTransformerBlock(
             dim=embed_dim,
-            input_resolution=(4, 4),  # Corrected to match the 4x4 spatial dimension
+            input_resolution=(32, 32),
             num_heads=num_heads,
             window_size=window_size,
             shift_size=0,
@@ -318,86 +295,55 @@ class CIFAR10SwinWrapper(nn.Module):
         )
 
         self.norm = nn.LayerNorm(embed_dim)
-        self.fc = nn.Linear(16 * embed_dim, 512)
 
-    def forward(self, x_left, x_right):
-        # x_left and x_right have shape (B, 512, 4, 2)
-        B, C, H, W = x_left.shape
+    def forward(self, x):
+        B, C, H, W = x.shape
         
-        # Add left and right embeddings to the ResNet outputs
-        x_left = x_left + self.left_embed
-        x_right = x_right + self.right_embed
+        # Use the pre-computed left/right mask
+        left_right = self.left_right.expand(B, -1, -1, -1)
+        
+        # Concatenate with input
+        x = torch.cat([x, left_right], dim=1)
 
-        # Concatenate along the last dimension (width) to create a 4x4 spatial dimension
-        x = torch.cat((x_left, x_right), dim=-1)  # Shape: (B, 512, 4, 4)
-
-        # Rearrange to (B, 4, 4, 512)
+        # Patch embedding
+        x = self.patch_embed(x)  # Shape: (B, embed_dim, 32, 32)
+        
+        # Rearrange to (B, 32, 32, embed_dim)
         x = x.permute(0, 2, 3, 1)
 
-        # Project to embed_dim
-        x = self.proj(x)  # Shape: (B, 4, 4, embed_dim)
-
         # Apply the Swin Transformer block
-        x = self.swin_block(x)  # Shape: (B, 4, 4, embed_dim)
+        x = self.swin_block(x)  # Shape: (B, 32, 32, embed_dim)
 
         # Final normalization
         x = self.norm(x)
 
-        # Flatten and project to final output dimension
-        x = x.reshape(B, -1)  # Shape: (B, 16 * embed_dim)
-        output = self.fc(x)  # Shape: (B, 512)
+        return x
 
-        return output
-
-class BinocularResNetToSwin(nn.Module):
-    def __init__(self,
-                 left_res_encoder,
-                 right_res_encoder,
-                 swin_embed_dim=96, 
-                 swin_window_size=2, 
-                 swin_num_heads=4):
+class BinocularSwintoRes(nn.Module):
+    def __init__(self, swin, cnn):
         super().__init__()
-        self.left_res_encoder = left_res_encoder
-        self.right_res_encoder = right_res_encoder
-        
-        self.swin_wrapper = CIFAR10SwinWrapper(
-            in_channels=512,
-            embed_dim=swin_embed_dim,
-            window_size=swin_window_size,
-            num_heads=swin_num_heads
-        )
+        self.swin = swin
+        self.cnn = cnn
 
     def forward(self, x):
-        B, C, H, W = x.shape
-        assert W % 2 == 0, "Width must be even to split into left and right halves."
-        
-        left_input = x[:, :, :, :W // 2]
-        right_input = x[:, :, :, W // 2:]
-        
-        left_encoded = self.left_res_encoder(left_input)  # Shape: (B, 512, 4, 2)
-        right_encoded = self.right_res_encoder(right_input)  # Shape: (B, 512, 4, 2)
-        output = self.swin_wrapper(left_encoded, right_encoded)  # Shape: (B, 512)
+        x = self.swin(x)
+        x = x.permute(0, 3, 1, 2)  # Shape: (B, embed_dim, 32, 32)
+        return self.cnn(x)
 
-        return output
-    
+    @property
+    def in_channels(self):
+        return 3  # Always return 3 for CIFAR images
 
 if __name__ == '__main__':
-    #Example:
-    #| hide
-    left_resnet = resnet_arch_to_encoder('cifar_resnet18', remove_pool=True, flatten=False)
-    right_resnet = resnet_arch_to_encoder('cifar_resnet18', remove_pool=True, flatten=False)
-    model =  BinocularResNetToSwin(
-                    left_resnet,
-                    right_resnet,
-                    swin_embed_dim=96, 
-                    swin_window_size=2, 
-                    swin_num_heads=4)
-    _x = torch.rand(1,3,32,32)
-    out=model(_x)
-    print(out.shape)
+    swin = BinocularAwareSwin()
+    cnn = resnet_arch_to_encoder('cifar_resnet18', n_in=96)
+    model = BinocularSwintoRes(swin=swin, cnn=cnn)
+    _x = torch.rand(1, 3, 32, 32)
+    _x = model(_x)
+    print(_x.shape)
+    print(f"Input channels: {model.in_channels}")
 
-
-# %% ../nbs/utils.ipynb 15
+# %% ../nbs/utils.ipynb 21
 def share_resnet_parameters(encoder_left, encoder_right):
     """Just tested for resnet18 or cifar_resnet18. Share params up to and inc stage 1."""
     for i in range(5):  # 0 to 4 inclusive
@@ -439,7 +385,7 @@ def test_resnet_parameter_sharing_with_training(encoder_left, encoder_right):
     print("All tests passed, including parameter update check!")
    
 
-# %% ../nbs/utils.ipynb 18
+# %% ../nbs/utils.ipynb 24
 def generate_config_hash(config):
     """
     Generates a unique hash for a given experiment configuration.
@@ -465,7 +411,7 @@ def generate_config_hash(config):
     return short_hash
 
 
-# %% ../nbs/utils.ipynb 21
+# %% ../nbs/utils.ipynb 27
 def create_experiment_directory(base_dir, config):
     # Generate a unique hash for the configuration
     unique_hash = generate_config_hash(config)
@@ -559,7 +505,7 @@ def setup_experiment(config,base_dir):
     return experiment_dir, experiment_hash,git_commit_hash
 
 
-# %% ../nbs/utils.ipynb 22
+# %% ../nbs/utils.ipynb 28
 class InterruptCallback(Callback):
     def __init__(self, interrupt_epoch):
         super().__init__()
@@ -588,7 +534,7 @@ class SaveLearnerCheckpoint(Callback):
             print(f"Checkpoint saved to {checkpoint_path}")
 
 
-# %% ../nbs/utils.ipynb 23
+# %% ../nbs/utils.ipynb 29
 def extract_number(filename):
     """Extract the number from end of  filename. e.g. `epoch`"""
     #pattern = re.compile(r"_epoch_(\d+)\.pt[h]?")
@@ -691,7 +637,7 @@ def get_highest_num_path(base_dir, config):
 
     
 
-# %% ../nbs/utils.ipynb 24
+# %% ../nbs/utils.ipynb 30
 def save_dict_to_gdrive(d,directory, filename):
     #e.g. directory='/content/drive/My Drive/random_initial_weights'
     filepath = directory + '/' + filename + '.pkl'
@@ -705,7 +651,7 @@ def load_dict_from_gdrive(directory,filename):
         d = pickle.load(f)
     return d
 
-# %% ../nbs/utils.ipynb 25
+# %% ../nbs/utils.ipynb 31
 def download_weights():
 
     # Define paths
