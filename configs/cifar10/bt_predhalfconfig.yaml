@@ -1,0 +1,20 @@
+dataset: cifar10
+arch: cifar_resnet18 
+train_type: SSL #which train type we will perform: SSL or supervised
+weight_type: random #random, imgnet_bt_pretrained,imgnet_sup_pretrained
+size: 32 #size of the image
+n_in: 3
+bs: 256 #batch size for training
+ps: 512  # size of projector dimension
+hs: 512  # size of hidden dimension
+bt_augs: bt_predhalf_aug_pipelines  # Changed to use our new augmentation pipeline
+model_type: predhalf_barlow_twins  #`barlow_twins` or `indiv_sparse_barlow_twins`, `group_sparse_barlow_twins`, `proj_group_sparse_barlow_twins`
+lmb: none #this comes from ps generally
+sparsity_level: none
+wd: 0.0000015 #1.5*1e-6 which is the deault in the paper. We may have to ablate as a control to our idea though
+freeze_epochs: none
+num_it: 100
+pct_dataset: 1.0
+epochs: 500  #number of epochs to train BT variant
+save_interval: 500 #just save at end
+
