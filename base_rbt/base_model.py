@@ -1285,10 +1285,13 @@ def main_vicreg_train(config,
     elif config.model_type == 'br_vicreg':
         #Same as above for now since we are using left/right split augmentation
 
-        res = resnet_arch_to_encoder(arch=config.arch, weight_type=config.weight_type)
-        encoder = BinocularEncoder(res)
+        # res = resnet_arch_to_encoder(arch=config.arch, weight_type=config.weight_type)
+        # encoder = BinocularEncoder(res)
+        # model = create_vicreg_model(encoder, encoder, hidden_size=config.hs, projection_size=config.ps, shared_projector=config.shared_projector)
+        
+        encoder = BinocularResNet()
         model = create_vicreg_model(encoder, encoder, hidden_size=config.hs, projection_size=config.ps, shared_projector=config.shared_projector)
-    
+
 
     #     test_eq(config.arch,'cifar_resnet18_swin')
     #     swin = BinocularAwareSwin()

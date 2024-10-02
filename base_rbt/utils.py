@@ -3,11 +3,12 @@
 # %% auto 0
 __all__ = ['PACKAGE_NAME', 'test_grad_on', 'test_grad_off', 'seed_everything', 'adjust_config_with_derived_values', 'load_config',
            'pretty_print_ns', 'get_resnet_encoder', 'get_cifar_resnet18', 'resnet_arch_to_encoder', 'SimpleCNN',
-           'BinocularEncoder', 'share_resnet_parameters', 'test_resnet_parameter_sharing_with_training',
-           'generate_config_hash', 'create_experiment_directory', 'save_configuration', 'save_metadata_file',
-           'update_experiment_index', 'get_latest_commit_hash', 'setup_experiment', 'InterruptCallback',
-           'SaveLearnerCheckpoint', 'extract_number', 'find_largest_file', 'return_max_filename',
-           'get_highest_num_path', 'save_dict_to_gdrive', 'load_dict_from_gdrive', 'download_weights']
+           'BinocularEncoder', 'BinocularResNet', 'share_resnet_parameters',
+           'test_resnet_parameter_sharing_with_training', 'generate_config_hash', 'create_experiment_directory',
+           'save_configuration', 'save_metadata_file', 'update_experiment_index', 'get_latest_commit_hash',
+           'setup_experiment', 'InterruptCallback', 'SaveLearnerCheckpoint', 'extract_number', 'find_largest_file',
+           'return_max_filename', 'get_highest_num_path', 'save_dict_to_gdrive', 'load_dict_from_gdrive',
+           'download_weights']
 
 # %% ../nbs/utils.ipynb 3
 from fastcore.test import *
@@ -264,7 +265,7 @@ def resnet_arch_to_encoder(
 
     return get_resnet_encoder(_model,remove_pool=remove_pool,flatten=flatten)
 
-# %% ../nbs/utils.ipynb 15
+# %% ../nbs/utils.ipynb 16
 class SimpleCNN(nn.Module):
     def __init__(self, in_channels=3, out_channels=3):
         super().__init__()
@@ -306,7 +307,48 @@ class BinocularEncoder(nn.Module):
 # model(_x).shape
 
 
-# %% ../nbs/utils.ipynb 22
+# %% ../nbs/utils.ipynb 17
+class BinocularResNet(nn.Module):
+    def __init__(self):
+        super().__init__()
+        
+        res1 = resnet_arch_to_encoder('cifar_resnet18')
+        res2 = resnet_arch_to_encoder('cifar_resnet18')
+        res3 = resnet_arch_to_encoder('cifar_resnet18')
+        
+        self.left_cnn = nn.Sequential(*res1[:6])
+        self.right_cnn = nn.Sequential(*res2[:6])
+        self.full_cnn_early = nn.Sequential(*res3[:6])
+        self.full_cnn_late = nn.Sequential(*res3[6:])
+        
+    def forward(self, x):
+        # Split input into left and right halves
+        left_half = x[:, :, :, :x.shape[3]//2]
+        right_half = x[:, :, :, x.shape[3]//2:]
+        
+        # Process through early stages
+        left_output = self.left_cnn(left_half)
+        right_output = self.right_cnn(right_half)
+        
+        # Concatenate outputs along the width dimension
+        lr_cat = torch.cat([left_output, right_output], dim=3)
+
+        x = lr_cat + self.full_cnn_early(x)
+        
+        # Process through later stages
+        output = self.full_cnn_late(x)
+        
+        return output
+
+# # Create the model
+# model = BinocularResNet()
+
+# # Test the model
+# test_input = torch.randn(1, 3, 32, 32)  # Example input for CIFAR-10
+# output = model(test_input)
+# print(f"Output shape: {output.shape}")
+
+# %% ../nbs/utils.ipynb 20
 def share_resnet_parameters(encoder_left, encoder_right):
     """Just tested for resnet18 or cifar_resnet18. Share params up to and inc stage 1."""
     for i in range(5):  # 0 to 4 inclusive
@@ -348,7 +390,7 @@ def test_resnet_parameter_sharing_with_training(encoder_left, encoder_right):
     print("All tests passed, including parameter update check!")
    
 
-# %% ../nbs/utils.ipynb 25
+# %% ../nbs/utils.ipynb 23
 def generate_config_hash(config):
     """
     Generates a unique hash for a given experiment configuration.
@@ -374,7 +416,7 @@ def generate_config_hash(config):
     return short_hash
 
 
-# %% ../nbs/utils.ipynb 28
+# %% ../nbs/utils.ipynb 26
 def create_experiment_directory(base_dir, config):
     # Generate a unique hash for the configuration
     unique_hash = generate_config_hash(config)
@@ -468,7 +510,7 @@ def setup_experiment(config,base_dir):
     return experiment_dir, experiment_hash,git_commit_hash
 
 
-# %% ../nbs/utils.ipynb 29
+# %% ../nbs/utils.ipynb 27
 class InterruptCallback(Callback):
     def __init__(self, interrupt_epoch):
         super().__init__()
@@ -497,7 +539,7 @@ class SaveLearnerCheckpoint(Callback):
             print(f"Checkpoint saved to {checkpoint_path}")
 
 
-# %% ../nbs/utils.ipynb 30
+# %% ../nbs/utils.ipynb 28
 def extract_number(filename):
     """Extract the number from end of  filename. e.g. `epoch`"""
     #pattern = re.compile(r"_epoch_(\d+)\.pt[h]?")
@@ -600,7 +642,7 @@ def get_highest_num_path(base_dir, config):
 
     
 
-# %% ../nbs/utils.ipynb 31
+# %% ../nbs/utils.ipynb 29
 def save_dict_to_gdrive(d,directory, filename):
     #e.g. directory='/content/drive/My Drive/random_initial_weights'
     filepath = directory + '/' + filename + '.pkl'
@@ -614,7 +656,7 @@ def load_dict_from_gdrive(directory,filename):
         d = pickle.load(f)
     return d
 
-# %% ../nbs/utils.ipynb 32
+# %% ../nbs/utils.ipynb 30
 def download_weights():
 
     # Define paths

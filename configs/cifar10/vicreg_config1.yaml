@@ -1,5 +1,5 @@
 dataset: cifar10
-arch: cnn_lr_cifar_resnet18
+arch: res_lr_cifar_resnet18
 train_type: SSL #which train type we will perform: SSL or supervised
 weight_type: random #random, imgnet_bt_pretrained,imgnet_sup_pretrained
 size: 32 #size of the image
