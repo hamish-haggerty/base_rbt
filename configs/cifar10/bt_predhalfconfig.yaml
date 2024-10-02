@@ -7,6 +7,7 @@ n_in: 3
 bs: 256 #batch size for training
 ps: 512  # size of projector dimension
 hs: 512  # size of hidden dimension
+nlayers: 1 #layers of predictor
 bt_augs: bt_predhalf_aug_pipelines  # Changed to use our new augmentation pipeline
 model_type: predhalf_barlow_twins  #`barlow_twins` or `indiv_sparse_barlow_twins`, `group_sparse_barlow_twins`, `proj_group_sparse_barlow_twins`
 lmb: none #this comes from ps generally

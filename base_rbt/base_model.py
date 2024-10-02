@@ -932,18 +932,32 @@ def lf_predhalf(pred_enc, pred, I, lmb):
     z1, z2 = pred_enc[:bs], pred_enc[bs:]  # encoder outputs
     p1, p2 = pred[:bs], pred[bs:]  # predictor outputs
 
-    # Prediction loss: predict z2 from z1
-    pred_loss = F.mse_loss(p1, z2)#.detach())
+    # Prediction loss
+    pred_loss = F.mse_loss(p1, z2)
 
-    # Optional: add a variance loss to prevent collapse
+    # Variance loss
     std_z1 = torch.sqrt(z1.var(dim=0) + 0.0001)
     std_z2 = torch.sqrt(z2.var(dim=0) + 0.0001)
     var_loss = torch.mean(F.relu(1 - std_z1)) / 2 + torch.mean(F.relu(1 - std_z2)) / 2
 
-    # Combine losses (you can adjust the weight of var_loss)
-    loss = pred_loss + 25 * var_loss
+    # Covariance loss
+      # Covariance loss
+    z1 = z1 - z1.mean(dim=0)
+    z2 = z2 - z2.mean(dim=0)
+    cov_z1 = (z1.T @ z1) / (z1.shape[0] - 1)
+    cov_z2 = (z2.T @ z2) / (z2.shape[0] - 1)
+    cov_loss = off_diagonal(cov_z1).pow_(2).sum().div(z1.shape[1]) + \
+               off_diagonal(cov_z2).pow_(2).sum().div(z2.shape[1])
+
+    # Combine losses
+    loss = pred_loss + 25 * var_loss + 1 * cov_loss  # Adjust weights as needed
 
     return loss
+
+def off_diagonal(x):
+    n, m = x.shape
+    assert n == m
+    return x.flatten()[:-1].view(n - 1, n + 1)[:, 1:].flatten()
 
 # %% ../nbs/base_model.ipynb 26
 @patch
@@ -1333,12 +1347,17 @@ def main_bt_train(config,
     else:
         splitter_str='none'
 
+    if hasattr(config,'nlayers'):
+        nlayers=config.nlayers
+    else:
+        nlayers=3
+
 
     # Construct the model based on the configuration
     # This involves selecting the architecture and setting model-specific hyperparameters.
     encoder = resnet_arch_to_encoder(arch=config.arch, weight_type=config.weight_type)
     
-    model = create_barlow_twins_model(encoder, hidden_size=config.hs, projection_size=config.ps)
+    model = create_barlow_twins_model(encoder, hidden_size=config.hs, projection_size=config.ps,nlayers=nlayers)
 
     # Prepare data loaders according to the dataset specified in the configuration
     dls = get_ssl_dls(dataset=config.dataset, bs=config.bs,size=config.size, device=device,pct_dataset=config.pct_dataset)
