@@ -90,7 +90,8 @@ def adjust_config_with_derived_values(config):
     #*determined* by the arch. This is a biy annoying, but we just leave it
     #as is for simplicity. 
     
-    if config.arch in ['smallres','resnet18','cifar_resnet18','cnn_lr_cifar_resnet18','cifar_resnet18_swin','resnet34']:
+    if config.arch in ['smallres','resnet18','cifar_resnet18',\
+                       'cnn_lr_cifar_resnet18','res_lr_cifar_resnet18','cifar_resnet18_swin','resnet34']:
         config.encoder_dimension = 512
 
     elif config.arch in ['resnet50']:
