@@ -2,7 +2,7 @@
 
 # %% auto 0
 __all__ = ['IMAGENET_Augs', 'DERMNET_Augs', 'bt_aug_func_dict', 'RandomGaussianBlur', 'RandomCenterDropout', 'get_BT_batch_augs',
-           'RandomHalfMask', 'get_multi_aug_pipelines', 'get_barlow_twins_aug_pipelines',
+           'RandomQuarterMask', 'get_multi_aug_pipelines', 'get_barlow_twins_aug_pipelines',
            'get_bt_cifar10_aug_pipelines', 'helper_get_bt_augs', 'get_bt_imagenet_aug_pipelines',
            'get_bt_dermnet_aug_pipelines', 'get_bt_aug_pipelines', 'get_bt_predhalf_aug_pipelines', 'get_ssl_dls',
            'BarlowTwinsModel', 'create_barlow_twins_model', 'BarlowTwins', 'VICRegModel', 'in_channels',
@@ -172,10 +172,10 @@ class RandomCenterDropout(torch.nn.Module):
 #     return pipe
 
 def get_BT_batch_augs(size,
-                    flip=True, crop=True, noise=True, rotate=True, jitter=True, bw=True, blur=True, solar=True, cutout=False, half_mask=False,  # Whether to use given aug or not
+                    flip=True, crop=True, noise=True, rotate=True, jitter=True, bw=True, blur=True, solar=True, cutout=False, quarter_mask=False,  # Whether to use given aug or not
                     resize_scale=(0.08, 1.0), resize_ratio=(3/4, 4/3), noise_std=0.025, rotate_deg=30, jitter_s=.6, blur_s=(4,32),  # hps of diff augs
                     blur_r=(0.1,2), blur_sig=None, sol_t=0.05, sol_a=0.05, min_dropout_size=(25, 100), max_dropout_size=(50,150),  # hps of diff augs
-                    flip_p=0.5, rotate_p=0.3, noise_p=0.2, jitter_p=0.3, bw_p=0.3, blur_p=0.3, sol_p=0.1, cut_p=0.0, half_mask_p=1.0,  # prob of performing aug
+                    flip_p=0.5, rotate_p=0.3, noise_p=0.2, jitter_p=0.3, bw_p=0.3, blur_p=0.3, sol_p=0.1, cut_p=0.0, quarter_mask_p=0.5,  # prob of performing aug
                     same_on_batch=False, stats=imagenet_stats, cuda=default_device().type == 'cuda', xtra_tfms=[]
                     ):
     "Input batch augmentations implemented in tv+kornia+fastai"
@@ -188,8 +188,11 @@ def get_BT_batch_augs(size,
 
     if cutout: tfms += [RandomCenterDropout(min_dropout_size=min_dropout_size, max_dropout_size=max_dropout_size, fill_value=0, p=cut_p, same_on_batch=same_on_batch)]
     
-    if half_mask:
-        tfms += [RandomHalfMask(p=half_mask_p)]  # Add this line
+    if quarter_mask:
+        tfms += [RandomQuarterMask(p=quarter_mask_p)]
+        
+    # if half_mask:
+    #     tfms += [RandomHalfMask(p=half_mask_p)]  # Add this line
 
     if flip: tfms += [korniatfm.RandomHorizontalFlip(p=flip_p, same_on_batch=same_on_batch)]
 
@@ -214,37 +217,103 @@ def get_BT_batch_augs(size,
     pipe = Pipeline(tfms, split_idx = 0)
     return pipe
 
-class RandomHalfMask(RandTransform):
-    "Randomly mask either the left or right half of the image or batch of images"
+# class RandomHalfMask(RandTransform):
+#     "Randomly mask either the left or right half of the image or batch of images"
+#     order = 11  # Adjust this order as needed
+    
+#     def __init__(self, p=0.5):
+#         super().__init__(p=p)
+    
+#     def encodes(self, x:TensorImage):
+#         if random.random() > self.p:
+#             return x
+        
+#         if x.dim() == 3:  # Single image
+#             c, h, w = x.shape
+#             mask = torch.ones_like(x)
+#             if random.random() < 0.5:
+#                 mask[:, :, w//2:] = 0  # Mask right half
+#             else:
+#                 mask[:, :, :w//2] = 0  # Mask left half
+#         elif x.dim() == 4:  # Batch of images
+#             b, c, h, w = x.shape
+#             mask = torch.ones_like(x)
+#             for i in range(b):
+#                 if random.random() < 0.5:
+#                     mask[i, :, :, w//2:] = 0  # Mask right half
+#                 else:
+#                     mask[i, :, :, :w//2] = 0  # Mask left half
+#         else:
+#             raise ValueError(f"Expected 3D or 4D tensor, got {x.dim()}D tensor")
+        
+#         return x * mask
+
+# class RandomHalfMask(RandTransform):
+#     "Randomly mask either the left or right half of the image or batch of images with probability p"
+#     order = 11  # Adjust this order as needed
+    
+#     def __init__(self, p=0.5):
+#         super().__init__(p=1.0)  # Always apply the transform
+#         self.mask_prob = p  # Probability of applying a mask
+    
+#     def encodes(self, x:TensorImage):
+#         if random.random() >= self.mask_prob:
+#             return x  # No masking applied
+        
+#         if x.dim() == 3:  # Single image
+#             c, h, w = x.shape
+#             mask = torch.ones_like(x)
+#             if random.random() < 0.5:
+#                 mask[:, :, w//2:] = 0  # Mask right half
+#             else:
+#                 mask[:, :, :w//2] = 0  # Mask left half
+#             return x * mask
+#         elif x.dim() == 4:  # Batch of images
+#             b, c, h, w = x.shape
+#             mask = torch.ones_like(x)
+#             for i in range(b):
+#                 if random.random() < 0.5:
+#                     mask[i, :, :, w//2:] = 0  # Mask right half
+#                 else:
+#                     mask[i, :, :, :w//2] = 0  # Mask left half
+#             return x * mask
+#         else:
+#             raise ValueError(f"Expected 3D or 4D tensor, got {x.dim()}D tensor")
+
+class RandomQuarterMask(RandTransform):
+    "Randomly mask a quarter of the image with probability p"
     order = 11  # Adjust this order as needed
     
-    def __init__(self, p=1.0):
-        super().__init__(p=p)
+    def __init__(self, p=0.5):
+        super().__init__(p=1.0)  # Always apply the transform
+        self.mask_prob = p  # Probability of applying a mask
     
     def encodes(self, x:TensorImage):
-        if random.random() > self.p:
-            return x
+        if random.random() >= self.mask_prob:
+            return x  # No masking applied
         
         if x.dim() == 3:  # Single image
-            c, h, w = x.shape
-            mask = torch.ones_like(x)
-            if random.random() < 0.5:
-                mask[:, :, w//2:] = 0  # Mask right half
-            else:
-                mask[:, :, :w//2] = 0  # Mask left half
+            return self._mask_single_image(x)
         elif x.dim() == 4:  # Batch of images
-            b, c, h, w = x.shape
-            mask = torch.ones_like(x)
-            for i in range(b):
-                if random.random() < 0.5:
-                    mask[i, :, :, w//2:] = 0  # Mask right half
-                else:
-                    mask[i, :, :, :w//2] = 0  # Mask left half
+            return torch.stack([self._mask_single_image(img) for img in x])
         else:
             raise ValueError(f"Expected 3D or 4D tensor, got {x.dim()}D tensor")
+    
+    def _mask_single_image(self, img):
+        c, h, w = img.shape
+        mask = torch.ones_like(img)
+        quarter = random.choice(['top_left', 'top_right', 'bottom_left', 'bottom_right'])
         
-        return x * mask
-
+        if quarter == 'top_left':
+            mask[:, :h//2, :w//2] = 0
+        elif quarter == 'top_right':
+            mask[:, :h//2, w//2:] = 0
+        elif quarter == 'bottom_left':
+            mask[:, h//2:, :w//2] = 0
+        else:  # bottom_right
+            mask[:, h//2:, w//2:] = 0
+        
+        return img * mask
 
 @delegates(get_BT_batch_augs)
 def get_multi_aug_pipelines(size, **kwargs): return get_BT_batch_augs(size, **kwargs)
@@ -333,12 +402,33 @@ def get_bt_aug_pipelines(bt_augs,size):
     
 
 # %% ../nbs/base_model.ipynb 9
+# def get_bt_predhalf_aug_pipelines(size):
+#     # Augmentations for the masked view
+#     aug_pipelines_1 = get_barlow_twins_aug_pipelines(size=size,
+#                                                     bw=True, rotate=False, crop=False, noise=True, jitter=True, blur=True, solar=True, half_mask=True,
+#                                                     noise_std=0.0125, jitter_s=1.0, blur_s=math.ceil(size/10)+1,
+#                                                     bw_p=0.2, flip_p=0.0, noise_p=0.5, jitter_p=0.5, blur_p=0.5, sol_p=0.0, half_mask_p=0.5,  # half_mask_p controls the probability of applying the mask
+#                                                     stats=cifar_stats, same_on_batch=False, xtra_tfms=[]
+#                                                     )
+
+#     # Augmentations for the full view (keep all augmentations)
+#     aug_pipelines_2 = get_barlow_twins_aug_pipelines(size=size,
+#                                                     bw=True, rotate=True, crop=True, noise=True, jitter=True, blur=True, solar=True,
+#                                                     resize_scale=(0.4, 1.0), rotate_deg=45, noise_std=0.0125, jitter_s=1.0, blur_s=math.ceil(size/10)+1, sol_t=0.01, sol_a=0.01,
+#                                                     bw_p=0.2, flip_p=0.5, rotate_p=0.25, noise_p=0.5, jitter_p=0.5, blur_p=0.1, sol_p=0.2,
+#                                                     stats=cifar_stats, same_on_batch=False, xtra_tfms=[]
+#                                                     )
+
+#     bt_predhalf_aug_pipelines = [aug_pipelines_1, aug_pipelines_2]
+
+#     return bt_predhalf_aug_pipelines
+
 def get_bt_predhalf_aug_pipelines(size):
     # Augmentations for the masked view
     aug_pipelines_1 = get_barlow_twins_aug_pipelines(size=size,
-                                                    bw=True, rotate=False, crop=False, noise=True, jitter=True, blur=True, solar=True, half_mask=True,
+                                                    bw=True, rotate=False, crop=False, noise=True, jitter=True, blur=True, solar=True, quarter_mask=True,
                                                     noise_std=0.0125, jitter_s=1.0, blur_s=math.ceil(size/10)+1,
-                                                    bw_p=0.2, flip_p=0.0, noise_p=0.5, jitter_p=0.5, blur_p=0.5, sol_p=0.0, half_mask_p=1.0,
+                                                    bw_p=0.2, flip_p=0.0, noise_p=0.5, jitter_p=0.5, blur_p=0.5, sol_p=0.0, quarter_mask_p=0.5,
                                                     stats=cifar_stats, same_on_batch=False, xtra_tfms=[]
                                                     )
 
@@ -354,15 +444,18 @@ def get_bt_predhalf_aug_pipelines(size):
 
     return bt_predhalf_aug_pipelines
 
+# Update the bt_aug_func_dict
+bt_aug_func_dict['bt_predhalf_aug_pipelines'] = get_bt_predhalf_aug_pipelines
+
 # Add this to the bt_aug_func_dict
 bt_aug_func_dict['bt_predhalf_aug_pipelines'] = get_bt_predhalf_aug_pipelines
 
 #Test
 # dls = get_ssl_dls('cifar10', bs=32, size=32, device=default_device())
 # aug = get_bt_aug_pipelines('bt_predhalf_aug_pipelines', 32)
-# show_bt_batch(dls, n_in=3, aug=aug, n=10, print_augs=True)
+# show_bt_batch(dls, n_in=3, aug=aug, n=2, print_augs=True)
 
-# %% ../nbs/base_model.ipynb 10
+# %% ../nbs/base_model.ipynb 11
 def get_ssl_dls(dataset,#cifar10, dermnet, etc
             bs,
             size,
@@ -402,7 +495,7 @@ def get_ssl_dls(dataset,#cifar10, dermnet, etc
     return dls_train
 
 
-# %% ../nbs/base_model.ipynb 12
+# %% ../nbs/base_model.ipynb 13
 #Base functions / classes we need to train a BT / RBT model.
 
 #TODO: We can make these more abstract so can incrementally modify to build `bt/rbt` and also `new idea.` But for 
@@ -514,7 +607,7 @@ class BarlowTwins(Callback):
         for i in range(n): images += [x1[i],x2[i]]
         return show_batch(x1[0], None, images, max_n=len(images), nrows=n)
 
-# %% ../nbs/base_model.ipynb 14
+# %% ../nbs/base_model.ipynb 15
 # Base functions / classes we need to train a 
 #  model
 class VICRegModel(Module):
@@ -738,7 +831,7 @@ class VICReg(BarlowTwins):
             self.learn.xb = (torch.cat([xi, xj], dim=0),)
 
 
-# %% ../nbs/base_model.ipynb 17
+# %% ../nbs/base_model.ipynb 18
 def lf_bt(pred,I,lmb): #standard bt loss
     bs,nf = pred.size(0)//2,pred.size(1)
     
@@ -752,7 +845,7 @@ def lf_bt(pred,I,lmb): #standard bt loss
     loss = (cdiff*I + cdiff*(1-I)*lmb).sum() 
     return loss
 
-# %% ../nbs/base_model.ipynb 18
+# %% ../nbs/base_model.ipynb 19
 def lf_bt_sparse_head(pred,I,lmb,projector,sparsity_level):
   
     bt_loss = lf_bt(pred,I,lmb)
@@ -767,7 +860,7 @@ def lf_bt_sparse_head(pred,I,lmb,projector,sparsity_level):
  
     return loss
 
-# %% ../nbs/base_model.ipynb 19
+# %% ../nbs/base_model.ipynb 20
 def lf_bt_indiv_sparse(pred,I,lmb,sparsity_level,
                       ):
 
@@ -800,7 +893,7 @@ def lf_bt_indiv_sparse(pred,I,lmb,sparsity_level,
     
 
 
-# %% ../nbs/base_model.ipynb 20
+# %% ../nbs/base_model.ipynb 21
 def lf_bt_group_sparse(pred,I,lmb,sparsity_level,
                       ):
 
@@ -830,7 +923,7 @@ def lf_bt_group_sparse(pred,I,lmb,sparsity_level,
     torch.cuda.empty_cache()
     return loss
 
-# %% ../nbs/base_model.ipynb 21
+# %% ../nbs/base_model.ipynb 22
 def lf_bt_group_norm_sparse(pred,I,lmb,sparsity_level,
                       ):
 
@@ -864,7 +957,7 @@ def lf_bt_group_norm_sparse(pred,I,lmb,sparsity_level,
     torch.cuda.empty_cache()
     return loss
 
-# %% ../nbs/base_model.ipynb 22
+# %% ../nbs/base_model.ipynb 23
 def lf_bt_fun(pred,I,lmb,sparsity_level,
                       ):
 
@@ -898,7 +991,7 @@ def lf_bt_fun(pred,I,lmb,sparsity_level,
     torch.cuda.empty_cache()
     return loss
 
-# %% ../nbs/base_model.ipynb 23
+# %% ../nbs/base_model.ipynb 24
 def lf_bt_proj_group_sparse(pred,I,lmb,sparsity_level,
                            ):
 
@@ -926,7 +1019,7 @@ def lf_bt_proj_group_sparse(pred,I,lmb,sparsity_level,
     torch.cuda.empty_cache()
     return loss
 
-# %% ../nbs/base_model.ipynb 24
+# %% ../nbs/base_model.ipynb 25
 def lf_predhalf(pred_enc, pred, I, lmb):
     bs = pred_enc.size(0) // 2
     z1, z2 = pred_enc[:bs], pred_enc[bs:]  # encoder outputs
@@ -959,7 +1052,7 @@ def off_diagonal(x):
     assert n == m
     return x.flatten()[:-1].view(n - 1, n + 1)[:, 1:].flatten()
 
-# %% ../nbs/base_model.ipynb 26
+# %% ../nbs/base_model.ipynb 27
 @patch
 def lf(self:BarlowTwins, pred,*yb):
     "Assumes model created according to type p3"
@@ -1000,11 +1093,11 @@ def lf(self:BarlowTwins, pred,*yb):
 
     else: raise(Exception)
 
-# %% ../nbs/base_model.ipynb 27
+# %% ../nbs/base_model.ipynb 28
 def my_splitter_bt(m):
     return L(sequential(*m.encoder),m.projector).map(params)
 
-# %% ../nbs/base_model.ipynb 28
+# %% ../nbs/base_model.ipynb 29
 def my_splitter_bt_last_block_resnet50(m):
     #Note: don't think we actually need this guy.
     "Freeze all but the last bottleneck layer"
@@ -1012,7 +1105,7 @@ def my_splitter_bt_last_block_resnet50(m):
     final_block_and_projector = sequential(m.encoder[-3][-1], m.projector)
     return L(enc_except_final_block, final_block_and_projector).map(params)
 
-# %% ../nbs/base_model.ipynb 30
+# %% ../nbs/base_model.ipynb 31
 def show_bt_batch(dls,n_in,aug,n=2,print_augs=True):
     "Given a linear learner, show a batch"
         
@@ -1034,7 +1127,7 @@ def show_vicreg_batch(dls,n_in,aug,n=2,print_augs=True,model_type='vicreg'):
     axes = learn.vic_reg.show(n=n)
 
 
-# %% ../nbs/base_model.ipynb 32
+# %% ../nbs/base_model.ipynb 33
 class SaveBarlowLearnerCheckpoint(Callback):
     "Save such that can resume training "
     def __init__(self, experiment_dir,start_epoch=0, save_interval=250,with_opt=True):
@@ -1091,7 +1184,7 @@ class SaveVicRegLearnerModel(Callback):
 
 
 
-# %% ../nbs/base_model.ipynb 33
+# %% ../nbs/base_model.ipynb 34
 def load_barlow_model(arch,ps,hs,path):
 
     encoder = resnet_arch_to_encoder(arch=arch, weight_type='random')
@@ -1110,7 +1203,7 @@ def load_vicreg_model(arch,ps,hs,path):
 
 
 
-# %% ../nbs/base_model.ipynb 34
+# %% ../nbs/base_model.ipynb 35
 class BarlowTrainer:
     "Setup a learner for training a BT model. Can do transfer learning, normal training, or resume training."
 
@@ -1241,7 +1334,7 @@ class BarlowTrainer:
         return self.learn
 
 
-# %% ../nbs/base_model.ipynb 36
+# %% ../nbs/base_model.ipynb 37
 class VICRegTrainer(BarlowTrainer):
     def __init__(self,
                  model,
@@ -1326,7 +1419,7 @@ class VICRegTrainer(BarlowTrainer):
     #     # You can customize this method for VICReg-specific training logic if needed
     #     return super().train(learn_type, freeze_epochs, epochs, start_epoch, interrupt_epoch)
 
-# %% ../nbs/base_model.ipynb 41
+# %% ../nbs/base_model.ipynb 42
 def main_bt_train(config,
         start_epoch = 0,
         interrupt_epoch = 100,
@@ -1396,7 +1489,7 @@ def main_bt_train(config,
     return learn
 
 
-# %% ../nbs/base_model.ipynb 43
+# %% ../nbs/base_model.ipynb 44
 def main_vicreg_train(config,
         start_epoch = 0,
         interrupt_epoch = 100,
@@ -1497,7 +1590,7 @@ def main_vicreg_train(config,
     return learn
 
 
-# %% ../nbs/base_model.ipynb 44
+# %% ../nbs/base_model.ipynb 45
 def get_bt_experiment_state(config,base_dir):
     """Get the load_learner_path, learn_type, start_epoch, interrupt_epoch for BT experiment.
        Basically this tells us how to continue learning (e.g. we have run two sessions for 
@@ -1528,7 +1621,7 @@ def get_bt_experiment_state(config,base_dir):
 
     return load_learner_path, learn_type, start_epoch, interrupt_epoch
 
-# %% ../nbs/base_model.ipynb 45
+# %% ../nbs/base_model.ipynb 46
 def main_bt_experiment(config,
                       base_dir,
                       ):
