@@ -3,7 +3,7 @@
 
 ## base_rbt
 
-Package implementing paper: todo - arxiv link - [paper](link-to-paper)
+Package implementing paper: (TODO - arxiv link) - [paper](link-to-paper)
 
 Comparison of supervised and self-supervised (via Barlow Twins) ImageNet
 pre-training, on the downstream task of fine-tuning a cancer image
@@ -16,8 +16,8 @@ is further pre-trained.
 
 ## How to use
 
-Please see `Experiments` folder (TODO: add this) which gives details on
-running code e.g. in google Colab.
+Please see `Experiments` which gives details on running code e.g. in
+google Colab.
 
 ## References
 
