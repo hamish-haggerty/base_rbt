@@ -10,6 +10,7 @@ hs: 512  # size of hidden dimension
 nlayers: 1 #layers of predictor
 bt_augs: bt_predhalf_aug_pipelines  # Changed to use our new augmentation pipeline
 model_type: predhalf_barlow_twins  #`barlow_twins` or `indiv_sparse_barlow_twins`, `group_sparse_barlow_twins`, `proj_group_sparse_barlow_twins`
+sgdr: True 
 lmb: none #this comes from ps generally
 sparsity_level: none
 wd: 0.0000015 #1.5*1e-6 which is the deault in the paper. We may have to ablate as a control to our idea though

@@ -308,7 +308,7 @@ class BinocularEncoder(nn.Module):
 # model(_x).shape
 
 
-# %% ../nbs/utils.ipynb 19
+# %% ../nbs/utils.ipynb 21
 class BinocularResNet(nn.Module):
     def __init__(self):
         super().__init__()
@@ -349,7 +349,7 @@ class BinocularResNet(nn.Module):
 # output = model(test_input)
 # print(f"Output shape: {output.shape}")
 
-# %% ../nbs/utils.ipynb 22
+# %% ../nbs/utils.ipynb 24
 def share_resnet_parameters(encoder_left, encoder_right):
     """Just tested for resnet18 or cifar_resnet18. Share params up to and inc stage 1."""
     for i in range(5):  # 0 to 4 inclusive
@@ -391,7 +391,7 @@ def test_resnet_parameter_sharing_with_training(encoder_left, encoder_right):
     print("All tests passed, including parameter update check!")
    
 
-# %% ../nbs/utils.ipynb 25
+# %% ../nbs/utils.ipynb 27
 def generate_config_hash(config):
     """
     Generates a unique hash for a given experiment configuration.
@@ -417,7 +417,7 @@ def generate_config_hash(config):
     return short_hash
 
 
-# %% ../nbs/utils.ipynb 28
+# %% ../nbs/utils.ipynb 30
 def create_experiment_directory(base_dir, config):
     # Generate a unique hash for the configuration
     unique_hash = generate_config_hash(config)
@@ -511,7 +511,7 @@ def setup_experiment(config,base_dir):
     return experiment_dir, experiment_hash,git_commit_hash
 
 
-# %% ../nbs/utils.ipynb 29
+# %% ../nbs/utils.ipynb 31
 class InterruptCallback(Callback):
     def __init__(self, interrupt_epoch):
         super().__init__()
@@ -540,7 +540,7 @@ class SaveLearnerCheckpoint(Callback):
             print(f"Checkpoint saved to {checkpoint_path}")
 
 
-# %% ../nbs/utils.ipynb 30
+# %% ../nbs/utils.ipynb 32
 def extract_number(filename):
     """Extract the number from end of  filename. e.g. `epoch`"""
     #pattern = re.compile(r"_epoch_(\d+)\.pt[h]?")
@@ -643,7 +643,7 @@ def get_highest_num_path(base_dir, config):
 
     
 
-# %% ../nbs/utils.ipynb 31
+# %% ../nbs/utils.ipynb 33
 def save_dict_to_gdrive(d,directory, filename):
     #e.g. directory='/content/drive/My Drive/random_initial_weights'
     filepath = directory + '/' + filename + '.pkl'
@@ -657,7 +657,7 @@ def load_dict_from_gdrive(directory,filename):
         d = pickle.load(f)
     return d
 
-# %% ../nbs/utils.ipynb 32
+# %% ../nbs/utils.ipynb 34
 def download_weights():
 
     # Define paths
