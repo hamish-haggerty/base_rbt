@@ -3,7 +3,7 @@
 
 ## base_rbt
 
-Package implementing paper: (TODO - arxiv link) - [paper](link-to-paper)
+Package implementing paper: [paper](https://arxiv.org/abs/2401.00692)
 
 Comparison of supervised and self-supervised (via Barlow Twins) ImageNet
 pre-training, on the downstream task of fine-tuning a cancer image

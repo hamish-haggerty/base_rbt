@@ -86,7 +86,7 @@ def adjust_config_with_derived_values(config):
     # Adjust n_in based on dataset
 
 
-    #This is really just for backwards compatibility (old configs), and so
+    #This is really just for backwards compatibility (old configs) and so
     # we easily have access to `encoder_dimension`; of course it's 
     #*determined* by the arch. This is a biy annoying, but we just leave it
     #as is for simplicity. 
